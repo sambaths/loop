@@ -891,31 +891,6 @@ exit 1
 	}
 }
 
-func TestSyncLabelsTestReadyToReadyForAgent(t *testing.T) {
-	mockDir := t.TempDir()
-	mockGh := filepath.Join(mockDir, "gh")
-	script := `#!/bin/bash
-if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "42" ] && [ "$4" = "--repo" ] && [ "$5" = "owner/repo" ] && [ "$6" = "--remove-label" ] && [ "$7" = "test-ready" ]; then
-	exit 0
-fi
-if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "42" ] && [ "$4" = "--repo" ] && [ "$5" = "owner/repo" ] && [ "$6" = "--add-label" ] && [ "$7" = "ready-for-agent" ]; then
-	exit 0
-fi
-echo "unexpected args: $*" >&2
-exit 1
-`
-	if err := os.WriteFile(mockGh, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
-	r := Repo{Owner: "owner", Name: "repo"}
-
-	err := SyncLabelsForStates(r, 42, issue.StateTestReady, issue.StateReadyForAgent)
-	if err != nil {
-		t.Errorf("SyncLabelsForStates TestReady->ReadyForAgent = %v, want nil", err)
-	}
-}
-
 func TestSyncLabelsReadyForAgentToTestReady(t *testing.T) {
 	mockDir := t.TempDir()
 	mockGh := filepath.Join(mockDir, "gh")
@@ -972,6 +947,9 @@ func TestSyncLabelsTestReadyToTodo(t *testing.T) {
 	mockGh := filepath.Join(mockDir, "gh")
 	script := `#!/bin/bash
 if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "42" ] && [ "$4" = "--repo" ] && [ "$5" = "owner/repo" ] && [ "$6" = "--remove-label" ] && [ "$7" = "test-ready" ]; then
+	exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "42" ] && [ "$4" = "--repo" ] && [ "$5" = "owner/repo" ] && [ "$6" = "--add-label" ] && [ "$7" = "ready-for-agent" ]; then
 	exit 0
 fi
 echo "unexpected args: $*" >&2
@@ -1163,6 +1141,9 @@ func TestSyncLabelsFromTransitionTestReadyToTodo(t *testing.T) {
 	mockGh := filepath.Join(mockDir, "gh")
 	script := `#!/bin/bash
 if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "42" ] && [ "$4" = "--repo" ] && [ "$5" = "owner/repo" ] && [ "$6" = "--remove-label" ] && [ "$7" = "test-ready" ]; then
+	exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "42" ] && [ "$4" = "--repo" ] && [ "$5" = "owner/repo" ] && [ "$6" = "--add-label" ] && [ "$7" = "ready-for-agent" ]; then
 	exit 0
 fi
 echo "unexpected args: $*" >&2

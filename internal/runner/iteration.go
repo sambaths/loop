@@ -41,9 +41,6 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 	}
 
 	timeout := time.Duration(cfg.AgentTimeout) * time.Second
-	if timeout <= 0 {
-		timeout = time.Duration(config.DefaultAgentTimeout) * time.Second
-	}
 
 	content, err := os.ReadFile(issueFile.FilePath)
 	if err != nil {
@@ -92,9 +89,6 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 	}
 
 	timeout := time.Duration(cfg.AgentTimeout) * time.Second
-	if timeout <= 0 {
-		timeout = time.Duration(config.DefaultAgentTimeout) * time.Second
-	}
 
 	content, err := os.ReadFile(issueFile.FilePath)
 	if err != nil {

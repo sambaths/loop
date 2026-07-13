@@ -220,6 +220,9 @@ func SyncLabelsForStates(r Repo, issueNumber int, from, to issue.State) error {
 	case from == issue.StateTestReady && to == issue.StateDone:
 		report(removeLabelIfExists(r, issueNumber, "test-ready"))
 		report(CloseIssue(r, issueNumber, ""))
+	case from == issue.StateTestReady && to == issue.StateTodo:
+		report(removeLabelIfExists(r, issueNumber, "test-ready"))
+		report(AddLabel(r, issueNumber, "ready-for-agent"))
 	case from == issue.StateTestReady && to == issue.StateReadyForAgent:
 		report(removeLabelIfExists(r, issueNumber, "test-ready"))
 		report(AddLabel(r, issueNumber, "ready-for-agent"))

@@ -411,7 +411,7 @@ func TestPipelineIterateTestPassMovesToDone(t *testing.T) {
 	}
 }
 
-func TestPipelineIterateTestFailMovesToReadyForAgent(t *testing.T) {
+func TestPipelineIterateTestFailMovesToTodo(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)
 	defer chdir(t, dir)()
@@ -427,12 +427,12 @@ func TestPipelineIterateTestFailMovesToReadyForAgent(t *testing.T) {
 		t.Fatalf("Iterate failed: %v", err)
 	}
 
-	readyForAgent, err := issue.List(dir, issue.StateReadyForAgent)
+	todo, err := issue.List(dir, issue.StateTodo)
 	if err != nil {
-		t.Fatalf("List ready-for-agent: %v", err)
+		t.Fatalf("List todo: %v", err)
 	}
-	if len(readyForAgent) != 1 {
-		t.Fatalf("expected 1 issue in ready-for-agent, got %d", len(readyForAgent))
+	if len(todo) != 1 {
+		t.Fatalf("expected 1 issue in todo, got %d", len(todo))
 	}
 
 	testReady, err := issue.List(dir, issue.StateTestReady)
@@ -464,15 +464,15 @@ func TestPipelineIterateTestFailStripsSections(t *testing.T) {
 		t.Fatalf("Iterate failed: %v", err)
 	}
 
-	readyForAgent, err := issue.List(dir, issue.StateReadyForAgent)
+	todo, err := issue.List(dir, issue.StateTodo)
 	if err != nil {
-		t.Fatalf("List ready-for-agent: %v", err)
+		t.Fatalf("List todo: %v", err)
 	}
-	if len(readyForAgent) != 1 {
-		t.Fatalf("expected 1 issue in ready-for-agent, got %d", len(readyForAgent))
+	if len(todo) != 1 {
+		t.Fatalf("expected 1 issue in todo, got %d", len(todo))
 	}
 
-	data, err := os.ReadFile(readyForAgent[0].FilePath)
+	data, err := os.ReadFile(todo[0].FilePath)
 	if err != nil {
 		t.Fatalf("ReadFile failed: %v", err)
 	}

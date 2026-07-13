@@ -224,7 +224,7 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 
 		target := stateFromDir(transition.DestDir, cfg.IssueDir)
 
-		if target == issue.StateReadyForAgent && selectedFile.State == issue.StateTestReady {
+		if target == issue.StateTodo && selectedFile.State == issue.StateTestReady {
 			if err := issue.StripSectionsFromFile(selectedFile.FilePath, []string{"Test Results", "UAT Results"}); err != nil {
 				ghFailures = append(ghFailures, fmt.Sprintf("strip sections failed: %v", err))
 			}
@@ -407,7 +407,7 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 
 		target := stateFromDir(transition.DestDir, cfg.IssueDir)
 
-		if target == issue.StateReadyForAgent && selectedFile.State == issue.StateTestReady {
+		if target == issue.StateTodo && selectedFile.State == issue.StateTestReady {
 			if err := issue.StripSectionsFromFile(selectedFile.FilePath, []string{"Test Results", "UAT Results"}); err != nil {
 				ghFailures = append(ghFailures, fmt.Sprintf("strip sections failed: %v", err))
 			}

@@ -168,7 +168,7 @@ func TestRunLoopTestPassMovesToDone(t *testing.T) {
 	}
 }
 
-func TestRunLoopTestFailMovesToReadyForAgent(t *testing.T) {
+func TestRunLoopTestFailMovesToTodo(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)
 	defer chdir(t, dir)()
@@ -184,12 +184,12 @@ func TestRunLoopTestFailMovesToReadyForAgent(t *testing.T) {
 		t.Fatalf("RunLoop failed: %v", err)
 	}
 
-	readyForAgent, err := issue.List(dir, issue.StateReadyForAgent)
+	todo, err := issue.List(dir, issue.StateTodo)
 	if err != nil {
-		t.Fatalf("List ready-for-agent: %v", err)
+		t.Fatalf("List todo: %v", err)
 	}
-	if len(readyForAgent) != 1 {
-		t.Fatalf("expected 1 issue in ready-for-agent, got %d", len(readyForAgent))
+	if len(todo) != 1 {
+		t.Fatalf("expected 1 issue in todo, got %d", len(todo))
 	}
 	testReady, err := issue.List(dir, issue.StateTestReady)
 	if err != nil {

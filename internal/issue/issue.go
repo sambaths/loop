@@ -71,6 +71,23 @@ func PickCanonical(paths []string) (string, error) {
 // errMissingHeading is returned by Read when a file's first line is not a level-1 heading.
 var errMissingHeading = fmt.Errorf("missing title heading: first line must start with '# '")
 
+// sectionName extracts the section name from a markdown heading line (any level).
+// Returns empty string if the line is not a heading.
+// "## What to build" → "What to build"
+// "# What to build" → "What to build"
+// "### What to build" → "What to build"
+func sectionName(line string) string {
+	trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+	count := 0
+	for count < len(trimmed) && trimmed[count] == '#' {
+		count++
+	}
+	if count == 0 || count > 6 || count >= len(trimmed) || trimmed[count] != ' ' {
+		return ""
+	}
+	return strings.TrimSpace(trimmed[count+1:])
+}
+
 type State string
 
 const (
@@ -120,7 +137,6 @@ type IssueBody struct {
 // RequiredSections lists the six body sections that every issue file MUST
 // contain for proper agent processing.
 var RequiredSections = []string{
-	"Parent",
 	"What to build",
 	"User stories covered",
 	"Acceptance criteria",
@@ -341,6 +357,7 @@ func copyAndDelete(src, dst string) error {
 		return fmt.Errorf("copy %s to %s: %w", src, dst, err)
 	}
 	if err := os.Remove(src); err != nil {
+		os.Remove(dst)
 		return fmt.Errorf("remove %s after copy: %w", src, err)
 	}
 	return nil
@@ -742,14 +759,14 @@ func ParseBlockedBy(content string) []string {
 	inBlockedBy := false
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
-		if strings.HasPrefix(trimmed, "## Blocked by") {
+		if name := sectionName(trimmed); name != "" && strings.EqualFold(name, "Blocked by") {
 			inBlockedBy = true
 			continue
 		}
 		if !inBlockedBy {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "## ") {
+		if sectionName(trimmed) != "" {
 			break
 		}
 		if strings.HasPrefix(trimmed, "- ") {
@@ -774,11 +791,11 @@ func ParseIssueSections(content string) (map[string]string, error) {
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
-		if strings.HasPrefix(trimmed, "## ") {
+		if name := sectionName(trimmed); name != "" {
 			if currentSection != "" {
 				sections[currentSection] = strings.TrimSpace(buf.String())
 			}
-			currentSection = strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
+			currentSection = strings.ToLower(name)
 			buf.Reset()
 			continue
 		}
@@ -802,8 +819,7 @@ func extractSection(content, section string) string {
 	inSection := false
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
-		if strings.HasPrefix(trimmed, "## ") {
-			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
+		if name := sectionName(trimmed); name != "" {
 			if strings.EqualFold(name, section) {
 				inSection = true
 				continue
@@ -1358,7 +1374,7 @@ func ComputeTransition(file *IssueFile, promise agent.Promise, role Role) (*Tran
 		case agent.TestPass:
 			target = StateDone
 		case agent.TestFail:
-			target = StateReadyForAgent
+			target = StateTodo
 		default:
 			return nil, fmt.Errorf("unknown promise %q", promise)
 		}
@@ -1518,13 +1534,12 @@ func sectionHasContent(content string, section string) bool {
 	lines := strings.Split(content, "\n")
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(trimmed, "## ") {
-			sectionName := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
-			if strings.EqualFold(sectionName, section) {
+		if name := sectionName(trimmed); name != "" {
+			if strings.EqualFold(name, section) {
 				j := i + 1
 				for j < len(lines) {
 					nextTrimmed := strings.TrimSpace(lines[j])
-					if strings.HasPrefix(nextTrimmed, "## ") {
+					if sectionName(nextTrimmed) != "" {
 						break
 					}
 					if nextTrimmed != "" {
@@ -1756,14 +1771,13 @@ func stripEmptySection(content string, section string) string {
 	i := 0
 	for i < len(lines) {
 		trimmed := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(trimmed, "## ") {
-			sectionName := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
-			if strings.EqualFold(sectionName, section) {
+		if name := sectionName(trimmed); name != "" {
+			if strings.EqualFold(name, section) {
 				j := i + 1
 				hasContent := false
 				for j < len(lines) {
 					nextTrimmed := strings.TrimSpace(lines[j])
-					if strings.HasPrefix(nextTrimmed, "## ") {
+					if sectionName(nextTrimmed) != "" {
 						break
 					}
 					if nextTrimmed != "" {
@@ -1802,9 +1816,8 @@ func StripIssueSections(content string, sections []string) string {
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## ") {
-			sectionName := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
-			if stripSet[strings.ToLower(sectionName)] {
+		if name := sectionName(trimmed); name != "" {
+			if stripSet[strings.ToLower(name)] {
 				skip = true
 				continue
 			}
@@ -1876,7 +1889,7 @@ func ValidateSections(content string, state State) []PreFlightIssue {
 	var issues []PreFlightIssue
 
 	for _, req := range RequiredSections {
-		if _, ok := sections[req]; !ok {
+		if _, ok := sections[strings.ToLower(req)]; !ok {
 			issues = append(issues, PreFlightIssue{
 				Severity: SeverityWarning,
 				Message:  fmt.Sprintf("missing required section %q", req),
@@ -1886,7 +1899,7 @@ func ValidateSections(content string, state State) []PreFlightIssue {
 
 	if disallowed, ok := DisallowedSections[state]; ok {
 		for _, dis := range disallowed {
-			if _, found := sections[dis]; found {
+			if _, found := sections[strings.ToLower(dis)]; found {
 				issues = append(issues, PreFlightIssue{
 					Severity: SeverityWarning,
 					Message:  fmt.Sprintf("section %q is not allowed in state %q (pre-populated disallowed section)", dis, state),
@@ -1910,14 +1923,14 @@ func ValidateIssueFormat(content string) []string {
 	var issues []string
 
 	for _, req := range RequiredSections {
-		if _, ok := sections[req]; !ok {
+		if _, ok := sections[strings.ToLower(req)]; !ok {
 			issues = append(issues, fmt.Sprintf("missing required section %q", req))
 		}
 	}
 
 	known := make(map[string]bool, len(KnownSections))
 	for _, s := range KnownSections {
-		known[s] = true
+		known[strings.ToLower(s)] = true
 	}
 	for name := range sections {
 		if !known[name] {
@@ -2150,8 +2163,26 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	for num := range ghNums {
 		allNums[num] = true
 	}
+	allBasenamePrefixes := make(map[string]bool)
+	for _, p := range allPaths {
+		st := StateFromPath(p)
+		if st == StateDone || st == StateQuarantine {
+			continue
+		}
+		base := strings.TrimSuffix(filepath.Base(p), ".md")
+		parts := strings.SplitN(base, "-", 2)
+		if len(parts) > 0 {
+			if _, err := strconv.Atoi(parts[0]); err == nil {
+				allBasenamePrefixes[parts[0]] = true
+			}
+		}
+	}
 
 	for _, p := range allPaths {
+		st := StateFromPath(p)
+		if st == StateDone || st == StateQuarantine {
+			continue
+		}
 		data, err := os.ReadFile(p)
 		if err != nil {
 			continue
@@ -2172,11 +2203,14 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 				continue
 			}
 			if !allNums[num] {
-				issues = append(issues, PreFlightIssue{
-					FilePath: p,
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("blocked by non-existent GitHub issue #%d", num),
-				})
+				numStr := strconv.Itoa(num)
+				if !allBasenamePrefixes[numStr] {
+					issues = append(issues, PreFlightIssue{
+						FilePath: p,
+						Severity: SeverityError,
+						Message:  fmt.Sprintf("blocked by non-existent GitHub issue #%d", num),
+					})
+				}
 			}
 		}
 	}
@@ -2204,6 +2238,9 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	for _, p := range allPaths {
 		f, ok := parsed[p]
 		if !ok {
+			continue
+		}
+		if f.State == StateDone || f.State == StateQuarantine {
 			continue
 		}
 		data, err := os.ReadFile(p)

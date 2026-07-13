@@ -187,22 +187,31 @@ func runContentStreamed(ctx context.Context, content string, dir string, timeout
 	cmd.Stdin = strings.NewReader(content)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	streamReader, streamWriter := io.Pipe()
-	cmd.Stdout = io.MultiWriter(&stdoutBuf, streamWriter)
-	cmd.Stderr = &stderrBuf
+	stdoutReader, stdoutWriter := io.Pipe()
+	stderrReader, stderrWriter := io.Pipe()
+	cmd.Stdout = io.MultiWriter(&stdoutBuf, stdoutWriter)
+	cmd.Stderr = io.MultiWriter(&stderrBuf, stderrWriter)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(streamReader)
+		scanner := bufio.NewScanner(stdoutReader)
+		for scanner.Scan() {
+			lineFn(scanner.Text())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrReader)
 		for scanner.Scan() {
 			lineFn(scanner.Text())
 		}
 	}()
 
 	if err := cmd.Start(); err != nil {
-		streamWriter.Close()
+		stdoutWriter.Close()
+		stderrWriter.Close()
 		wg.Wait()
 		if errors.Is(err, exec.ErrNotFound) {
 			return nil, fmt.Errorf("opencode not found — install it at https://opencode.ai or check your PATH: %w", ErrOpencodeNotFound)
@@ -216,7 +225,8 @@ func runContentStreamed(ctx context.Context, content string, dir string, timeout
 	}()
 
 	runErr := cmd.Wait()
-	streamWriter.Close()
+	stdoutWriter.Close()
+	stderrWriter.Close()
 	wg.Wait()
 
 	if runErr != nil {

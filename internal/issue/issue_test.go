@@ -1378,56 +1378,58 @@ func TestParseIssueSections(t *testing.T) {
 			name:    "single section",
 			content: "## What to build\nBuild a thing\n",
 			want: map[string]string{
-				"What to build": "Build a thing",
+				"what to build": "Build a thing",
 			},
 		},
 		{
 			name:    "multiple sections",
 			content: "## Section One\nContent one\n## Section Two\nContent two\n",
 			want: map[string]string{
-				"Section One": "Content one",
-				"Section Two": "Content two",
+				"section one": "Content one",
+				"section two": "Content two",
 			},
 		},
 		{
 			name:    "content before first section is ignored",
 			content: "Preamble\n## Section One\nContent one\n",
 			want: map[string]string{
-				"Section One": "Content one",
+				"section one": "Content one",
 			},
 		},
 		{
 			name:    "multiline section content",
 			content: "## Section\nLine 1\nLine 2\n",
 			want: map[string]string{
-				"Section": "Line 1\nLine 2",
+				"section": "Line 1\nLine 2",
 			},
 		},
 		{
 			name:    "no sections",
 			content: "# Title\n\nSome body text\n",
-			want:    map[string]string{},
+			want: map[string]string{
+				"title": "Some body text",
+			},
 		},
 		{
 			name:    "section with leading whitespace in heading",
 			content: "##   Spaced Name   \nContent\n",
 			want: map[string]string{
-				"Spaced Name": "Content",
+				"spaced name": "Content",
 			},
 		},
 		{
 			name:    "only headings no content",
 			content: "## One\n## Two\n",
 			want: map[string]string{
-				"One": "",
-				"Two": "",
+				"one": "",
+				"two": "",
 			},
 		},
 		{
 			name:    "content after last section is included",
 			content: "## Section\nContent\nTrailing\n",
 			want: map[string]string{
-				"Section": "Content\nTrailing",
+				"section": "Content\nTrailing",
 			},
 		},
 	}
@@ -2930,7 +2932,7 @@ func TestComputeTransitionTestTestFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ComputeTransition failed: %v", err)
 	}
-	wantDest := filepath.Join("/tmp/issues", "ready-for-agent")
+	wantDest := "/tmp/issues"
 	if tr.DestDir != wantDest {
 		t.Errorf("DestDir = %q, want %q", tr.DestDir, wantDest)
 	}
@@ -4144,12 +4146,11 @@ func TestParseIssueBodyNoSections(t *testing.T) {
 }
 
 func TestRequiredSectionsHaveExpectedItems(t *testing.T) {
-	if len(RequiredSections) != 6 {
-		t.Fatalf("RequiredSections length = %d, want 6", len(RequiredSections))
+	if len(RequiredSections) != 5 {
+		t.Fatalf("RequiredSections length = %d, want 5", len(RequiredSections))
 	}
 
 	want := []string{
-		"Parent",
 		"What to build",
 		"User stories covered",
 		"Acceptance criteria",
@@ -4626,8 +4627,8 @@ This section should not be here
 	if len(extra) != 1 {
 		t.Fatalf("expected 1 extra section issue, got %d: %v", len(extra), issues)
 	}
-	if !strings.Contains(extra[0], "Spurious Section") {
-		t.Errorf("expected message about Spurious Section, got %q", extra[0])
+	if !strings.Contains(extra[0], "spurious section") {
+		t.Errorf("expected message about spurious section, got %q", extra[0])
 	}
 }
 
@@ -4715,8 +4716,8 @@ Unexpected
 			extra++
 		}
 	}
-	if missing != len(RequiredSections)-1 {
-		t.Errorf("expected %d missing required sections (all except Parent), got %d", len(RequiredSections)-1, missing)
+	if missing != len(RequiredSections) {
+		t.Errorf("expected %d missing required sections (all required), got %d", len(RequiredSections), missing)
 	}
 	if extra != 1 {
 		t.Errorf("expected 1 extra section, got %d", extra)

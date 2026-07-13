@@ -215,9 +215,9 @@ func (p *Pipeline) Iterate() error {
 
 	target := stateFromDir(transition.DestDir, p.IssueDir)
 
-	// When TEST_FAIL returns an issue from test-ready to ready-for-agent,
+	// When TEST_FAIL returns an issue from test-ready to issues/ (todo),
 	// strip test results and UAT results so they don't accumulate on retry.
-	if target == issue.StateReadyForAgent && p.CurrentIssue.State == issue.StateTestReady {
+	if target == issue.StateTodo && p.CurrentIssue.State == issue.StateTestReady {
 		if err := issue.StripSectionsFromFile(p.CurrentIssue.FilePath, []string{"Test Results", "UAT Results"}); err != nil {
 			fmt.Fprintf(os.Stderr, "strip sections failed: %v\n", err)
 		}

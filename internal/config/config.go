@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const DefaultIssueDir = "docs/issues"
@@ -126,5 +127,46 @@ func Save(cfg Config) error {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
+	ensureGitignore()
 	return nil
+}
+
+func ensureGitignore() {
+	root, err := FindProjectRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not find project root for .gitignore: %v\n", err)
+		return
+	}
+	gitignorePath := filepath.Join(root, ".gitignore")
+
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: could not read .gitignore: %v\n", err)
+			return
+		}
+		// File doesn't exist, create it
+		if err := os.WriteFile(gitignorePath, []byte(".loop/\n"), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not create .gitignore: %v\n", err)
+		}
+		return
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == ".loop/" || trimmed == ".loop" {
+			return // already present
+		}
+	}
+
+	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not open .gitignore for append: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString("\n# loop config\n.loop/\n"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not append to .gitignore: %v\n", err)
+	}
 }

@@ -96,6 +96,11 @@ var cliRepair bool  // repair GitHub state on each iteration
 var cliHeadless bool // run without TUI (headless mode)
 
 func parseArgs(args []string) (command, int) {
+	// Reorder args so flags come before positional args.
+	// Go's flag package stops parsing at the first non-flag arg,
+	// so `loop run 1 --headless` would fail without this reorder.
+	reordered := reorderFlags(args)
+
 	fs := flag.NewFlagSet("loop", flag.ContinueOnError)
 	helpFlag := fs.Bool("help", false, "Show this help message")
 	hFlag := fs.Bool("h", false, "Show this help message (shorthand)")
@@ -105,7 +110,7 @@ func parseArgs(args []string) (command, int) {
 	headlessFlag := fs.Bool("headless", false, "Run without TUI (headless mode)")
 	fs.Usage = func() {}
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reordered); err != nil {
 		return cmdUnknown, 2
 	}
 
@@ -179,6 +184,28 @@ func parseArgs(args []string) (command, int) {
 	return cmdTUI, 0
 }
 
+// reorderFlags moves all flag arguments (starting with -) before positional
+// arguments so that Go's flag.Parse can find them even when they appear after
+// positional arguments (e.g. "loop run 1 --headless").
+func reorderFlags(args []string) []string {
+	var result, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--timeout" || a == "-timeout" {
+			result = append(result, a)
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				result = append(result, args[i+1])
+				i++
+			}
+		} else if strings.HasPrefix(a, "-") {
+			result = append(result, a)
+		} else {
+			positional = append(positional, a)
+		}
+	}
+	return append(result, positional...)
+}
+
 func printUsage() {
 	fmt.Fprint(os.Stderr, usage)
 }
@@ -205,6 +232,11 @@ func requireConfig() {
 }
 
 func runSetup() {
+	_, exists, err := config.Load()
+	if err == nil && exists {
+		fmt.Fprintln(os.Stderr, "Config already exists — skipping setup")
+		return
+	}
 	p := tea.NewProgram(setup.NewModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
