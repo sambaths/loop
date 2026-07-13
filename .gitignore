@@ -1,0 +1,32 @@
+# Planning artifacts (not part of the Go tool)
+CONTEXT.md
+docs/
+
+
+# Runtime config (created by `loop setup` per project)
+.loop/
+
+# Go build artifacts
+/loop
+loop.exe
+/dist/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Dependencies
+/vendor/
+
+# Go download artifacts
+*.tar.gz
+*.zip
+
+.scratch/
+dist/
+internal/tui/dashboard/loop-screenshot-*.txt
