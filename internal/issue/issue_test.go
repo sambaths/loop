@@ -3808,7 +3808,7 @@ func TestIsBlockerResolved(t *testing.T) {
 		{"number prefix match", "42", []string{"42-feature", "43-bugfix"}, true},
 		{"number with description", "42 — Feature name", []string{"42-feature"}, true},
 		{"with md extension", "42.md", []string{"42"}, true},
-		{"hash prefix not parsed", "#42", []string{"42-feature"}, false},
+		{"hash prefix now parses correctly", "#42", []string{"42-feature"}, true},
 		{"unresolved number", "99 — Missing", []string{"42-feature"}, false},
 		{"no number in ref", "text without number", []string{"42-feature"}, false},
 		{"empty ref", "", []string{"42-feature"}, false},

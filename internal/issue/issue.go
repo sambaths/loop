@@ -794,19 +794,17 @@ func isBlockerResolved(ref string, doneBases []string) bool {
 	ref = strings.TrimSpace(ref)
 	ref = strings.TrimSuffix(ref, ".md")
 	parts := strings.Fields(ref)
-	num := ""
 	for _, p := range parts {
-		if _, err := strconv.Atoi(p); err == nil {
-			num = p
-			break
+		p = strings.TrimLeft(p, "#( ")
+		if p == "" {
+			continue
 		}
-	}
-	if num == "" {
-		return false
-	}
-	for _, db := range doneBases {
-		if strings.HasPrefix(db, num) {
-			return true
+		if _, err := strconv.Atoi(p); err == nil {
+			for _, db := range doneBases {
+				if strings.HasPrefix(db, p) {
+					return true
+				}
+			}
 		}
 	}
 	return false
