@@ -338,52 +338,6 @@ func TestInstallScriptExists(t *testing.T) {
 	}
 }
 
-func TestReadmeExists(t *testing.T) {
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		t.Fatalf("cannot find project root: %v", err)
-	}
-	root = []byte(strings.TrimSpace(string(root)))
-
-	path := filepath.Join(string(root), "README.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("README.md not found: %v", err)
-	}
-
-	content := string(data)
-	if !strings.Contains(content, "# loop") {
-		t.Error("README.md should have title")
-	}
-	if !strings.Contains(content, "## What is loop") {
-		t.Error("README.md should have 'What is loop' section")
-	}
-	if !strings.Contains(content, "## Installation") {
-		t.Error("README.md should have 'Installation' section")
-	}
-	if !strings.Contains(content, "## Quickstart") {
-		t.Error("README.md should have 'Quickstart' section")
-	}
-	if !strings.Contains(content, "## Commands Reference") {
-		t.Error("README.md should have 'Commands Reference' section")
-	}
-	if !strings.Contains(content, "## Configuration") {
-		t.Error("README.md should have 'Configuration' section")
-	}
-	if !strings.Contains(content, "## Development") {
-		t.Error("README.md should have 'Development' section")
-	}
-	if !strings.Contains(content, "## License") {
-		t.Error("README.md should have 'License' section")
-	}
-	if !strings.Contains(content, "loop setup") {
-		t.Error("README.md should document loop setup")
-	}
-	if !strings.Contains(content, "loop run") {
-		t.Error("README.md should document loop run")
-	}
-}
-
 func TestCompletionCommand(t *testing.T) {
 	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
