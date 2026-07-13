@@ -77,6 +77,8 @@ func stateFromDir(dir, issuesDir string) issue.State {
 		return issue.StateDone
 	case ".quarantine":
 		return issue.StateQuarantine
+	case "unable":
+		return issue.StateUnable
 	default:
 		return issue.StateTodo
 	}
@@ -227,6 +229,16 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 		if target == issue.StateTodo && selectedFile.State == issue.StateTestReady {
 			if err := issue.StripSectionsFromFile(selectedFile.FilePath, []string{"Test Results", "UAT Results"}); err != nil {
 				ghFailures = append(ghFailures, fmt.Sprintf("strip sections failed: %v", err))
+			}
+
+			selectedFile.Retries++
+			if selectedFile.Retries >= issue.MaxRetries {
+				target = issue.StateUnable
+				lineFn(fmt.Sprintf("--- issue %q exceeded max retries (%d), moving to unable/ ---", selectedFile.Title, selectedFile.Retries))
+			} else {
+				if err := issue.SetRetryCount(selectedFile.FilePath, selectedFile.Retries); err != nil {
+					lineFn(fmt.Sprintf("--- warning: failed to update retry count: %v ---", err))
+				}
 			}
 		}
 
@@ -410,6 +422,16 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 		if target == issue.StateTodo && selectedFile.State == issue.StateTestReady {
 			if err := issue.StripSectionsFromFile(selectedFile.FilePath, []string{"Test Results", "UAT Results"}); err != nil {
 				ghFailures = append(ghFailures, fmt.Sprintf("strip sections failed: %v", err))
+			}
+
+			selectedFile.Retries++
+			if selectedFile.Retries >= issue.MaxRetries {
+				target = issue.StateUnable
+				fmt.Fprintf(os.Stderr, "--- issue %q exceeded max retries (%d), moving to unable/ ---\n", selectedFile.Title, selectedFile.Retries)
+			} else {
+				if err := issue.SetRetryCount(selectedFile.FilePath, selectedFile.Retries); err != nil {
+					fmt.Fprintf(os.Stderr, "--- warning: failed to update retry count: %v ---\n", err)
+				}
 			}
 		}
 

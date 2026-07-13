@@ -20,6 +20,8 @@ import (
 	"github.com/sambaths/loop/internal/agent"
 )
 
+const MaxRetries = 5
+
 // stageRank returns the priority of a pipeline stage for canonical file
 // selection. Higher rank = later stage = preferred.
 func stageRank(s State) int {
@@ -97,6 +99,7 @@ const (
 	StateReadyForAgent State = "ready-for-agent"
 	StateDone          State = "done"
 	StateQuarantine    State = ".quarantine"
+	StateUnable        State = "unable"
 )
 
 type Issue struct {
@@ -120,6 +123,7 @@ type IssueFile struct {
 	ExecMode  string
 	Branch    string
 	Checksum  string
+	Retries   int
 	FilePath  string
 	State     State
 }
@@ -174,6 +178,7 @@ type PipelineState struct {
 	ReadyForAgentFiles []string
 	DoneFiles          []string
 	QuarantineFiles    []string
+	UnableFiles        []string
 }
 
 func (ps *PipelineState) Counts() map[State]int {
@@ -183,6 +188,7 @@ func (ps *PipelineState) Counts() map[State]int {
 		StateReadyForAgent: len(ps.ReadyForAgentFiles),
 		StateDone:          len(ps.DoneFiles),
 		StateQuarantine:    len(ps.QuarantineFiles),
+		StateUnable:        len(ps.UnableFiles),
 	}
 }
 
@@ -207,12 +213,17 @@ func ScanIssueDir(root string) (*PipelineState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan quarantine: %w", err)
 	}
+	unable, err := scanDirFiles(filepath.Join(root, string(StateUnable)))
+	if err != nil {
+		return nil, fmt.Errorf("scan unable: %w", err)
+	}
 	return &PipelineState{
 		TodoFiles:          todo,
 		TestReadyFiles:     testReady,
 		ReadyForAgentFiles: readyForAgent,
 		DoneFiles:          done,
 		QuarantineFiles:    quarantine,
+		UnableFiles:        unable,
 	}, nil
 }
 
@@ -480,6 +491,8 @@ func StateFromPath(path string) State {
 		return StateDone
 	case ".quarantine":
 		return StateQuarantine
+	case "unable":
+		return StateUnable
 	default:
 		return StateTodo
 	}
@@ -511,6 +524,11 @@ func ParseIssueFile(path string) (*IssueFile, error) {
 			f.Branch = strings.TrimSpace(strings.TrimPrefix(line, "Branch:"))
 		case strings.HasPrefix(line, "Checksum:"):
 			f.Checksum = strings.TrimSpace(strings.TrimPrefix(line, "Checksum:"))
+		case strings.HasPrefix(line, "Retry:"):
+			trimmed := strings.TrimSpace(strings.TrimPrefix(line, "Retry:"))
+			if n, err := strconv.Atoi(trimmed); err == nil {
+				f.Retries = n
+			}
 		}
 	}
 
@@ -548,6 +566,46 @@ func SetChecksum(path string) error {
 
 	updated := insertChecksumLine(string(content), checksum)
 	return os.WriteFile(path, []byte(updated), 0644)
+}
+
+func SetRetryCount(path string, retries int) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read file for retry update: %w", err)
+	}
+	content := string(data)
+	retryLine := fmt.Sprintf("Retry: %d", retries)
+
+	lines := strings.SplitN(content, "\n", 2)
+	if len(lines) < 2 {
+		return fmt.Errorf("file too short for retry update")
+	}
+
+	header := lines[0]
+	rest := lines[1]
+
+	// Check if Retry: already exists in the header area
+	headerLines := strings.SplitN(content, "\n## ", 2)
+	headerSection := headerLines[0]
+
+	if strings.Contains(headerSection, "\nRetry:") || strings.HasPrefix(headerSection[len(lines[0]):], "Retry:") {
+		// Replace existing Retry: line
+		var newLines []string
+		for _, line := range strings.Split(content, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "Retry:") {
+				newLines = append(newLines, retryLine)
+			} else {
+				newLines = append(newLines, line)
+			}
+		}
+		content = strings.Join(newLines, "\n")
+	} else {
+		// Add Retry: after the title line
+		content = header + "\n" + retryLine + "\n" + rest
+	}
+
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 func insertChecksumLine(content string, checksum string) string {
@@ -2166,7 +2224,7 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	allBasenamePrefixes := make(map[string]bool)
 	for _, p := range allPaths {
 		st := StateFromPath(p)
-		if st == StateDone || st == StateQuarantine {
+		if st == StateDone || st == StateQuarantine || st == StateUnable {
 			continue
 		}
 		base := strings.TrimSuffix(filepath.Base(p), ".md")
@@ -2180,7 +2238,7 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 
 	for _, p := range allPaths {
 		st := StateFromPath(p)
-		if st == StateDone || st == StateQuarantine {
+		if st == StateDone || st == StateQuarantine || st == StateUnable {
 			continue
 		}
 		data, err := os.ReadFile(p)
@@ -2240,7 +2298,7 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 		if !ok {
 			continue
 		}
-		if f.State == StateDone || f.State == StateQuarantine {
+		if f.State == StateDone || f.State == StateQuarantine || f.State == StateUnable {
 			continue
 		}
 		data, err := os.ReadFile(p)
