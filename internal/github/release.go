@@ -1,9 +1,13 @@
 package github
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -17,7 +21,7 @@ func ArchivePattern(project string) string {
 }
 
 // DownloadLatestRelease downloads the latest release assets matching pattern
-// from repo into destDir. Returns the names of downloaded files.
+// from repo into destDir using the gh CLI. Returns the names of downloaded files.
 func DownloadLatestRelease(repo Repo, pattern, destDir string) ([]string, error) {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return nil, fmt.Errorf("create destination directory: %w", err)
@@ -44,6 +48,81 @@ func DownloadLatestRelease(repo Repo, pattern, destDir string) ([]string, error)
 		}
 	}
 	return files, nil
+}
+
+type releaseResponse struct {
+	TagName string          `json:"tag_name"`
+	Assets  []assetResponse `json:"assets"`
+}
+
+type assetResponse struct {
+	Name       string `json:"name"`
+	BrowserURL string `json:"browser_download_url"`
+}
+
+// DownloadLatestAsset downloads the latest release asset for the current
+// platform from the given GitHub repo using the public GitHub API.
+// No gh CLI or authentication required. Returns the names of downloaded files.
+func DownloadLatestAsset(owner, name, destDir string) ([]string, error) {
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return nil, fmt.Errorf("create destination directory: %w", err)
+	}
+
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, name)
+	resp, err := http.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch release info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var release releaseResponse
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, fmt.Errorf("parse release info: %w", err)
+	}
+
+	ext := "tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = "zip"
+	}
+
+	v := strings.TrimPrefix(release.TagName, "v")
+	wantPrefix := fmt.Sprintf("%s_%s_%s_%s.", name, v, runtime.GOOS, runtime.GOARCH)
+
+	var matchURL, matchName string
+	for _, asset := range release.Assets {
+		if strings.HasPrefix(asset.Name, wantPrefix) && strings.HasSuffix(asset.Name, "."+ext) {
+			matchURL = asset.BrowserURL
+			matchName = asset.Name
+			break
+		}
+	}
+
+	if matchURL == "" {
+		return nil, fmt.Errorf("no release asset found for %s/%s (%s/%s)", owner, name, runtime.GOOS, runtime.GOARCH)
+	}
+
+	destPath := filepath.Join(destDir, matchName)
+	out, err := os.Create(destPath)
+	if err != nil {
+		return nil, fmt.Errorf("create file: %w", err)
+	}
+	defer out.Close()
+
+	assetResp, err := http.Get(matchURL)
+	if err != nil {
+		return nil, fmt.Errorf("download asset: %w", err)
+	}
+	defer assetResp.Body.Close()
+
+	if _, err := io.Copy(out, assetResp.Body); err != nil {
+		return nil, fmt.Errorf("write asset: %w", err)
+	}
+
+	return []string{matchName}, nil
 }
 
 // LatestTag returns the tag name of the latest release for the given repo.
@@ -80,7 +159,6 @@ func FindMatchingArchive(files []string, project, version, goos, goarch string) 
 			return f
 		}
 	}
-	// Fallback: match any version (same OS/arch).
 	fallback := fmt.Sprintf("%s_*_%s_%s.", project, goos, goarch)
 	for _, f := range files {
 		matched, err := filepath.Match(fallback+"*", f)

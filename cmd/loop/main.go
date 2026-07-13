@@ -547,7 +547,7 @@ func runChecksumVerify() {
 }
 
 func runDownload() {
-	cfg, exists, err := config.Load()
+	_, exists, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
 		osExit(1)
@@ -560,29 +560,10 @@ func runDownload() {
 		return
 	}
 
-	if cfg.Repo == "" {
-		fmt.Fprintln(os.Stderr, "No GitHub repo configured — run 'loop setup' first")
-		osExit(1)
-		return
-	}
-
-	if !github.CheckAuthOnce() {
-		osExit(1)
-		return
-	}
-
-	repo, err := github.RepoFromString(cfg.Repo)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing repo: %v\n", err)
-		osExit(1)
-		return
-	}
-
-	pattern := github.ArchivePattern("loop")
 	destDir := "."
 
-	fmt.Fprintf(os.Stderr, "==> Downloading latest release from %s ...\n", repo)
-	files, err := github.DownloadLatestRelease(repo, pattern, destDir)
+	fmt.Fprintf(os.Stderr, "==> Downloading latest loop release ...\n")
+	files, err := github.DownloadLatestAsset("sambaths", "loop", destDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error downloading release: %v\n", err)
 		osExit(1)

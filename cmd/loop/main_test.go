@@ -2392,9 +2392,9 @@ func TestMainCommandDownloadNoRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	exited := false
+	// Prevent osExit from killing the test process.
 	origExit := osExit
-	osExit = func(code int) { exited = true }
+	osExit = func(code int) {}
 	defer func() { osExit = origExit }()
 
 	r, w, _ := os.Pipe()
@@ -2407,12 +2407,15 @@ func TestMainCommandDownloadNoRepo(t *testing.T) {
 	w.Close()
 	var buf strings.Builder
 	io.Copy(&buf, r)
+	output := buf.String()
 
-	if !exited {
-		t.Error("expected osExit for empty repo")
+	// Should NOT mention repo config — that check was removed.
+	if strings.Contains(output, "No GitHub repo configured") {
+		t.Error("unexpected 'No GitHub repo configured' error — download no longer requires a repo")
 	}
-	if !strings.Contains(buf.String(), "No GitHub repo configured") {
-		t.Errorf("expected repo error message, got:\n%s", buf.String())
+	// Should at least attempt the download.
+	if !strings.Contains(output, "Downloading latest loop release") {
+		t.Errorf("expected download attempt, got:\n%s", output)
 	}
 }
 
