@@ -207,6 +207,18 @@ func DeleteBranch(name string) error {
 	return nil
 }
 
+func CleanWorkingTree() error {
+	_, stderr, err := RunGit("reset", "--hard", "HEAD")
+	if err != nil {
+		return fmt.Errorf("reset --hard: %s: %w", stderr, err)
+	}
+	_, stderr, err = RunGit("clean", "-fd")
+	if err != nil {
+		return fmt.Errorf("clean -fd: %s: %w", stderr, err)
+	}
+	return nil
+}
+
 func CurrentBranch() (string, error) {
 	stdout, stderr, err := RunGit("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {

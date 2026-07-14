@@ -210,6 +210,10 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 
 			// On test pass, merge temp branch into target and delete it
 			if role == issue.RoleTest && promise == agent.TestPass {
+				if err := git.CleanWorkingTree(); err != nil {
+					lineFn(fmt.Sprintf("--- warning: failed to clean working tree: %v ---", err))
+				}
+
 				if err := git.SwitchBranch(targetBranch); err != nil {
 					lineFn(fmt.Sprintf("--- warning: failed to switch to %s for merge: %v ---", targetBranch, err))
 				} else {
@@ -460,6 +464,10 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 
 			// On test pass, merge temp branch into target and delete it
 			if role == issue.RoleTest && promise == agent.TestPass {
+				if err := git.CleanWorkingTree(); err != nil {
+					fmt.Fprintf(os.Stderr, "--- warning: failed to clean working tree: %v ---\n", err)
+				}
+
 				if err := git.SwitchBranch(targetBranch); err != nil {
 					fmt.Fprintf(os.Stderr, "--- warning: failed to switch to %s for merge: %v ---\n", targetBranch, err)
 				} else {
