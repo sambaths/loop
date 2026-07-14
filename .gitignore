@@ -30,3 +30,5 @@ Thumbs.db
 .scratch/
 dist/
 internal/tui/dashboard/loop-screenshot-*.txt
+
+bin/

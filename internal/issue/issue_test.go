@@ -6317,6 +6317,9 @@ func TestMoveFileNonExistentSource(t *testing.T) {
 }
 
 func TestMoveFilePermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("cannot test permission-denied when running as root")
+	}
 	dir := t.TempDir()
 	src := filepath.Join(dir, "readonly.txt")
 	dst := filepath.Join(dir, "dest.txt")

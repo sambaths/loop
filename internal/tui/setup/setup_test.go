@@ -349,6 +349,9 @@ func TestConfirmViewShowsError(t *testing.T) {
 }
 
 func TestConfirmAdvanceWithErrorStaysOnConfirm(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("cannot test permission-denied when running as root")
+	}
 	dir := t.TempDir()
 	origWd, _ := os.Getwd()
 	os.Chdir(dir)

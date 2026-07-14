@@ -104,6 +104,10 @@ func createTestReadyIssue(t *testing.T, dir string) {
 	}
 }
 
+func fullBody(title string) string {
+	return fmt.Sprintf("# %s\n\nExecution mode: AFK-only\n\n## What to build\n\nTest\n\n## User stories covered\n\nTest\n\n## Acceptance criteria\n\nTest\n\n## UAT plan\n\nTest\n\n## Blocked by\n\n- None\n", title)
+}
+
 func TestRunLoopCompleteMovesToTestReady(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)
@@ -872,69 +876,39 @@ func TestRunLoopPreFlightErrorsBlocksIteration(t *testing.T) {
 	}
 }
 
-func TestRunLoopPostAgentDuplicateScanStreamed(t *testing.T) {
+func TestQuarantineAllFilenameCollision(t *testing.T) {
 	dir := t.TempDir()
-	gitInit(t, dir)
-	defer chdir(t, dir)()
 
-	bodyA := "# Issue A\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	_, err := issue.Create(dir, issue.StateTodo, "Issue A", bodyA)
+	body := fullBody("Issue B")
+	_, err := issue.Create(dir, issue.StateTodo, "Issue B", body)
 	if err != nil {
-		t.Fatalf("Create A failed: %v", err)
+		t.Fatalf("Create Issue B in todo failed: %v", err)
 	}
 
-	bodyB := "# Issue B\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	issB, err := issue.Create(dir, issue.StateTodo, "Issue B", bodyB)
+	_, err = issue.Create(dir, issue.StateTestReady, "Issue B", body)
 	if err != nil {
-		t.Fatalf("Create B failed: %v", err)
+		t.Fatalf("Create Issue B in test-ready failed: %v", err)
 	}
-	addAndCommit(t, dir)
 
-	mockDir := t.TempDir()
-	dupDir := filepath.Join(dir, "test-ready")
-	dupFile := filepath.Join(dupDir, filepath.Base(issB.FilePath))
-
-	script := fmt.Sprintf(`#!/bin/bash
-cat > /dev/null
-mkdir -p %s
-echo "duplicate of issue B" > %s
-echo "__LOOP_RESULT__"
-echo "COMPLETE"
-echo "__LOOP_RESULT_END__"
-`, dupDir, dupFile)
-
-	mockPath := filepath.Join(mockDir, "opencode")
-	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
-		t.Fatalf("write mock opencode: %v", err)
-	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
-
-	var lines []string
-	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
-
-	t.Logf("Issue dir: %s", dir)
-	t.Logf("Mock dup file: %s", dupFile)
-
-	err = RunLoopStreamed(context.Background(), cfg, 1, 0, true,
-		func(line string) { lines = append(lines, line) },
-		func(iter, total int, title, role string) {},
-	)
+	ps, err := issue.ScanIssueDir(dir)
 	if err != nil {
-		t.Fatalf("RunLoopStreamed failed: %v", err)
+		t.Fatalf("ScanIssueDir failed: %v", err)
 	}
 
-	// Check if the duplicate file exists after the run
-	if _, statErr := os.Stat(dupFile); os.IsNotExist(statErr) {
-		t.Logf("Duplicate file does NOT exist after run (was cleaned up)")
-	} else if statErr == nil {
-		t.Logf("Duplicate file EXISTS after run")
-	} else {
-		t.Logf("Duplicate file stat error: %v", statErr)
+	n, dupIssues := issue.QuarantineAll(ps)
+	if n != 1 {
+		t.Fatalf("expected 1 quarantined file, got %d", n)
 	}
 
-	output := strings.Join(lines, "\n")
-	if !strings.Contains(output, "quarantined") {
-		t.Errorf("expected quarantine message in streamed output, got:\n%s", output)
+	found := false
+	for _, di := range dupIssues {
+		if strings.Contains(di.Message, "quarantined duplicate filename") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected quarantine message for duplicate filename, got: %v", dupIssues)
 	}
 
 	quarantine, err := issue.List(dir, issue.StateQuarantine)
@@ -942,89 +916,44 @@ echo "__LOOP_RESULT_END__"
 		t.Fatalf("List quarantine: %v", err)
 	}
 	if len(quarantine) != 1 {
-		t.Fatalf("expected 1 quarantined file, got %d: %v", len(quarantine), quarantine)
-	}
-
-	testReady, err := issue.List(dir, issue.StateTestReady)
-	if err != nil {
-		t.Fatalf("List test-ready: %v", err)
-	}
-	if len(testReady) != 1 {
-		t.Fatalf("expected 1 issue in test-ready (Issue A), got %d: %v", len(testReady), testReady)
-	}
-
-	todo, err := issue.List(dir, issue.StateTodo)
-	if err != nil {
-		t.Fatalf("List todo: %v", err)
-	}
-	if len(todo) != 0 {
-		t.Fatalf("expected 0 issues in todo, got %d: %v", len(todo), todo)
+		t.Errorf("expected 1 quarantined file on disk, got %d", len(quarantine))
 	}
 }
 
-func TestRunLoopPostAgentDuplicateScanContext(t *testing.T) {
+func TestQuarantineAllGitHubNumCollision(t *testing.T) {
 	dir := t.TempDir()
-	gitInit(t, dir)
-	defer chdir(t, dir)()
 
-	bodyA := "# Issue A\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
+	bodyA := "# Issue A\n\nGitHub: #42\nExecution mode: AFK-only\n\n## What to build\n\nTest\n\n## User stories covered\n\nTest\n\n## Acceptance criteria\n\nTest\n\n## UAT plan\n\nTest\n\n## Blocked by\n\n- None\n"
 	_, err := issue.Create(dir, issue.StateTodo, "Issue A", bodyA)
 	if err != nil {
-		t.Fatalf("Create A failed: %v", err)
+		t.Fatalf("Create Issue A failed: %v", err)
 	}
 
-	bodyB := "# Issue B\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	issB, err := issue.Create(dir, issue.StateTodo, "Issue B", bodyB)
+	bodyC := "# Issue C\n\nGitHub: #42\nExecution mode: AFK-only\n\n## What to build\n\nTest\n\n## User stories covered\n\nTest\n\n## Acceptance criteria\n\nTest\n\n## UAT plan\n\nTest\n\n## Blocked by\n\n- None\n"
+	_, err = issue.Create(dir, issue.StateTestReady, "Issue C", bodyC)
 	if err != nil {
-		t.Fatalf("Create B failed: %v", err)
+		t.Fatalf("Create Issue C failed: %v", err)
 	}
-	addAndCommit(t, dir)
 
-	mockDir := t.TempDir()
-	dupDir := filepath.Join(dir, "test-ready")
-	dupFile := filepath.Join(dupDir, filepath.Base(issB.FilePath))
-
-	script := fmt.Sprintf(`#!/bin/bash
-cat > /dev/null
-mkdir -p %s
-echo "duplicate of issue B" > %s
-echo "__LOOP_RESULT__"
-echo "COMPLETE"
-echo "__LOOP_RESULT_END__"
-`, dupDir, dupFile)
-
-	mockPath := filepath.Join(mockDir, "opencode")
-	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
-		t.Fatalf("write mock opencode: %v", err)
-	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
-
-	rPipe, wPipe, err := os.Pipe()
+	ps, err := issue.ScanIssueDir(dir)
 	if err != nil {
-		t.Fatal(err)
-	}
-	oldStderr := os.Stderr
-	os.Stderr = wPipe
-
-	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
-	err = RunLoopContext(context.Background(), cfg, 1, 0, true)
-
-	wPipe.Close()
-	os.Stderr = oldStderr
-
-	var buf strings.Builder
-	if _, err := io.Copy(&buf, rPipe); err != nil {
-		t.Fatal(err)
-	}
-	rPipe.Close()
-	stderr := buf.String()
-
-	if err != nil {
-		t.Fatalf("RunLoopContext failed: %v", err)
+		t.Fatalf("ScanIssueDir failed: %v", err)
 	}
 
-	if !strings.Contains(stderr, "quarantined") {
-		t.Errorf("expected quarantine message on stderr, got:\n%s", stderr)
+	n, dupIssues := issue.QuarantineAll(ps)
+	if n != 1 {
+		t.Fatalf("expected 1 quarantined file, got %d", n)
+	}
+
+	found := false
+	for _, di := range dupIssues {
+		if strings.Contains(di.Message, "duplicate GitHub #42") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected quarantine message for duplicate GitHub #42, got: %v", dupIssues)
 	}
 
 	quarantine, err := issue.List(dir, issue.StateQuarantine)
@@ -1032,71 +961,46 @@ echo "__LOOP_RESULT_END__"
 		t.Fatalf("List quarantine: %v", err)
 	}
 	if len(quarantine) != 1 {
-		t.Fatalf("expected 1 quarantined file, got %d: %v", len(quarantine), quarantine)
-	}
-
-	testReady, err := issue.List(dir, issue.StateTestReady)
-	if err != nil {
-		t.Fatalf("List test-ready: %v", err)
-	}
-	if len(testReady) != 1 {
-		t.Fatalf("expected 1 issue in test-ready (Issue A), got %d: %v", len(testReady), testReady)
-	}
-
-	todo, err := issue.List(dir, issue.StateTodo)
-	if err != nil {
-		t.Fatalf("List todo: %v", err)
-	}
-	if len(todo) != 0 {
-		t.Fatalf("expected 0 issues in todo, got %d: %v", len(todo), todo)
+		t.Errorf("expected 1 quarantined file on disk, got %d", len(quarantine))
 	}
 }
 
-func TestRunLoopSelectedFileQuarantinedStreamed(t *testing.T) {
+func TestQuarantineAllTitleCollision(t *testing.T) {
 	dir := t.TempDir()
-	gitInit(t, dir)
-	defer chdir(t, dir)()
 
-	body := "# My Issue\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	iss, err := issue.Create(dir, issue.StateTodo, "My Issue", body)
+	body := fullBody("Same Title")
+	_, err := issue.Create(dir, issue.StateTodo, "Same Title", body)
 	if err != nil {
-		t.Fatalf("Create failed: %v", err)
+		t.Fatalf("Create Same Title in todo failed: %v", err)
 	}
-	addAndCommit(t, dir)
 
-	mockDir := t.TempDir()
-	testReadyDir := filepath.Join(dir, "test-ready")
-	dupFile := filepath.Join(testReadyDir, filepath.Base(iss.FilePath))
-
-	script := fmt.Sprintf(`#!/bin/bash
-cat > /dev/null
-mkdir -p %s
-echo "# My Issue" > %s
-echo "__LOOP_RESULT__"
-echo "COMPLETE"
-echo "__LOOP_RESULT_END__"
-`, testReadyDir, dupFile)
-
-	mockPath := filepath.Join(mockDir, "opencode")
-	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
-		t.Fatalf("write mock opencode: %v", err)
+	secondPath := filepath.Join(dir, "test-ready", "different-name.md")
+	if err := os.MkdirAll(filepath.Dir(secondPath), 0755); err != nil {
+		t.Fatalf("mkdir test-ready: %v", err)
 	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
+	if err := os.WriteFile(secondPath, []byte(body), 0644); err != nil {
+		t.Fatalf("write second file: %v", err)
+	}
 
-	var lines []string
-	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
-
-	err = RunLoopStreamed(context.Background(), cfg, 1, 0, true,
-		func(line string) { lines = append(lines, line) },
-		func(iter, total int, title, role string) {},
-	)
+	ps, err := issue.ScanIssueDir(dir)
 	if err != nil {
-		t.Fatalf("RunLoopStreamed failed: %v", err)
+		t.Fatalf("ScanIssueDir failed: %v", err)
 	}
 
-	output := strings.Join(lines, "\n")
-	if !strings.Contains(output, "quarantined as duplicate") {
-		t.Errorf("expected warning about quarantined selected file, got:\n%s", output)
+	n, dupIssues := issue.QuarantineAll(ps)
+	if n != 1 {
+		t.Fatalf("expected 1 quarantined file, got %d", n)
+	}
+
+	found := false
+	for _, di := range dupIssues {
+		if strings.Contains(di.Message, "quarantined duplicate title") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected quarantine message for duplicate title, got: %v", dupIssues)
 	}
 
 	quarantine, err := issue.List(dir, issue.StateQuarantine)
@@ -1104,216 +1008,10 @@ echo "__LOOP_RESULT_END__"
 		t.Fatalf("List quarantine: %v", err)
 	}
 	if len(quarantine) != 1 {
-		t.Fatalf("expected 1 quarantined file, got %d: %v", len(quarantine), quarantine)
-	}
-
-	testReady, err := issue.List(dir, issue.StateTestReady)
-	if err != nil {
-		t.Fatalf("List test-ready: %v", err)
-	}
-	if len(testReady) != 1 {
-		t.Fatalf("expected 1 issue in test-ready (canonical), got %d: %v", len(testReady), testReady)
-	}
-
-	todo, err := issue.List(dir, issue.StateTodo)
-	if err != nil {
-		t.Fatalf("List todo: %v", err)
-	}
-	if len(todo) != 0 {
-		t.Fatalf("expected 0 issues in todo, got %d: %v", len(todo), todo)
+		t.Errorf("expected 1 quarantined file on disk, got %d", len(quarantine))
 	}
 }
 
-func TestRunLoopSelectedFileQuarantinedContext(t *testing.T) {
-	dir := t.TempDir()
-	gitInit(t, dir)
-	defer chdir(t, dir)()
-
-	body := "# My Issue\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	iss, err := issue.Create(dir, issue.StateTodo, "My Issue", body)
-	if err != nil {
-		t.Fatalf("Create failed: %v", err)
-	}
-	addAndCommit(t, dir)
-
-	mockDir := t.TempDir()
-	testReadyDir := filepath.Join(dir, "test-ready")
-	dupFile := filepath.Join(testReadyDir, filepath.Base(iss.FilePath))
-
-	script := fmt.Sprintf(`#!/bin/bash
-cat > /dev/null
-mkdir -p %s
-echo "# My Issue" > %s
-echo "__LOOP_RESULT__"
-echo "COMPLETE"
-echo "__LOOP_RESULT_END__"
-`, testReadyDir, dupFile)
-
-	mockPath := filepath.Join(mockDir, "opencode")
-	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
-		t.Fatalf("write mock opencode: %v", err)
-	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
-
-	rPipe, wPipe, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldStderr := os.Stderr
-	os.Stderr = wPipe
-
-	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
-	err = RunLoopContext(context.Background(), cfg, 1, 0, true)
-
-	wPipe.Close()
-	os.Stderr = oldStderr
-
-	var buf strings.Builder
-	if _, err := io.Copy(&buf, rPipe); err != nil {
-		t.Fatal(err)
-	}
-	rPipe.Close()
-	stderr := buf.String()
-
-	if err != nil {
-		t.Fatalf("RunLoopContext failed: %v", err)
-	}
-
-	if !strings.Contains(stderr, "quarantined as duplicate") {
-		t.Errorf("expected warning about quarantined selected file, got:\n%s", stderr)
-	}
-
-	quarantine, err := issue.List(dir, issue.StateQuarantine)
-	if err != nil {
-		t.Fatalf("List quarantine: %v", err)
-	}
-	if len(quarantine) != 1 {
-		t.Fatalf("expected 1 quarantined file, got %d: %v", len(quarantine), quarantine)
-	}
-
-	testReady, err := issue.List(dir, issue.StateTestReady)
-	if err != nil {
-		t.Fatalf("List test-ready: %v", err)
-	}
-	if len(testReady) != 1 {
-		t.Fatalf("expected 1 issue in test-ready (canonical), got %d: %v", len(testReady), testReady)
-	}
-
-	todo, err := issue.List(dir, issue.StateTodo)
-	if err != nil {
-		t.Fatalf("List todo: %v", err)
-	}
-	if len(todo) != 0 {
-		t.Fatalf("expected 0 issues in todo, got %d: %v", len(todo), todo)
-	}
-}
-
-
-func TestRunLoopPostAgentDuplicateGitHubNumStreamed(t *testing.T) {
-	dir := t.TempDir()
-	gitInit(t, dir)
-	defer chdir(t, dir)()
-
-	bodyA := "# Issue A\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	_, err := issue.Create(dir, issue.StateTodo, "Issue A", bodyA)
-	if err != nil {
-		t.Fatalf("Create A failed: %v", err)
-	}
-
-	bodyB := "# Issue B\n\nGitHub: #43\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	_, err = issue.Create(dir, issue.StateTodo, "Issue B", bodyB)
-	if err != nil {
-		t.Fatalf("Create B failed: %v", err)
-	}
-	addAndCommit(t, dir)
-
-	mockDir := t.TempDir()
-	testReadyDir := filepath.Join(dir, "test-ready")
-	dupFile := filepath.Join(testReadyDir, "different-name.md")
-
-	script := "#!/bin/bash\ncat > /dev/null\nmkdir -p " + testReadyDir + "\nprintf '" + "'" + "'# Issue C\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n'" + "'" + "' > " + dupFile + "\necho \"__LOOP_RESULT__\"\necho \"COMPLETE\"\necho \"__LOOP_RESULT_END__\"\n"
-
-	mockPath := filepath.Join(mockDir, "opencode")
-	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
-		t.Fatalf("write mock opencode: %v", err)
-	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
-
-	var lines []string
-	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
-
-	err = RunLoopStreamed(context.Background(), cfg, 1, 0, true,
-		func(line string) { lines = append(lines, line) },
-		func(iter, total int, title, role string) {},
-	)
-	if err != nil {
-		t.Fatalf("RunLoopStreamed failed: %v", err)
-	}
-
-	output := strings.Join(lines, "\n")
-	if !strings.Contains(output, "quarantined duplicate GitHub #42") {
-		t.Errorf("expected quarantine message for duplicate GitHub #42 in streamed output, got:\n%s", output)
-	}
-}
-
-func TestRunLoopPostAgentDuplicateGitHubNumContext(t *testing.T) {
-	dir := t.TempDir()
-	gitInit(t, dir)
-	defer chdir(t, dir)()
-
-	bodyA := "# Issue A\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	_, err := issue.Create(dir, issue.StateTodo, "Issue A", bodyA)
-	if err != nil {
-		t.Fatalf("Create A failed: %v", err)
-	}
-
-	bodyB := "# Issue B\n\nGitHub: #43\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n"
-	_, err = issue.Create(dir, issue.StateTodo, "Issue B", bodyB)
-	if err != nil {
-		t.Fatalf("Create B failed: %v", err)
-	}
-	addAndCommit(t, dir)
-
-	mockDir := t.TempDir()
-	testReadyDir := filepath.Join(dir, "test-ready")
-	dupFile := filepath.Join(testReadyDir, "different-name.md")
-
-	script := "#!/bin/bash\ncat > /dev/null\nmkdir -p " + testReadyDir + "\nprintf '" + "'" + "'# Issue C\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Blocked by\n\n- None\n'" + "'" + "' > " + dupFile + "\necho \"__LOOP_RESULT__\"\necho \"COMPLETE\"\necho \"__LOOP_RESULT_END__\"\n"
-
-	mockPath := filepath.Join(mockDir, "opencode")
-	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
-		t.Fatalf("write mock opencode: %v", err)
-	}
-	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
-
-	rPipe, wPipe, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldStderr := os.Stderr
-	os.Stderr = wPipe
-
-	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
-	err = RunLoopContext(context.Background(), cfg, 1, 0, true)
-
-	wPipe.Close()
-	os.Stderr = oldStderr
-
-	var buf strings.Builder
-	if _, err := io.Copy(&buf, rPipe); err != nil {
-		t.Fatal(err)
-	}
-	rPipe.Close()
-	stderr := buf.String()
-
-	if err != nil {
-		t.Fatalf("RunLoopContext failed: %v", err)
-	}
-
-	if !strings.Contains(stderr, "quarantined duplicate GitHub #42") {
-		t.Errorf("expected quarantine message for duplicate GitHub #42 on stderr, got:\n%s", stderr)
-	}
-}
 func TestRunLoopAgentNotFoundReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)

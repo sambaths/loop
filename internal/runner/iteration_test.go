@@ -81,6 +81,10 @@ func createIssueFile(t *testing.T, dir string, state issue.State, title string) 
 
 func TestRunIterationComplete(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	issueFile := createIssueFile(t, dir, issue.StateTodo, "Test Issue")
 	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
 
@@ -225,6 +229,10 @@ func TestRunIterationCustomBranchOrigin(t *testing.T) {
 
 func TestRunIterationEmptyBranchOrigin(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	issueFile := createIssueFile(t, dir, issue.StateTodo, "Test Issue")
 	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60, BranchOrigin: ""}
 
@@ -242,6 +250,10 @@ func TestRunIterationEmptyBranchOrigin(t *testing.T) {
 
 func TestRunIterationZeroTimeout(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	issueFile := createIssueFile(t, dir, issue.StateTodo, "Test Issue")
 	cfg := &config.Config{IssueDir: dir, AgentTimeout: 0}
 
@@ -259,6 +271,10 @@ func TestRunIterationZeroTimeout(t *testing.T) {
 
 func TestRunIterationImplementStripsTestResults(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	body := "# Test Issue\n\nExecution mode: AFK-only\n\n## What to build\n\nTest content\n\n## Test Results\n\nAll tests passed\n\n## UAT Results\n\nAll good\n"
 	iss, err := issue.Create(dir, issue.StateTodo, "Test Issue", body)
 	if err != nil {
@@ -311,6 +327,10 @@ func TestRunIterationTestKeepsTestResults(t *testing.T) {
 
 func TestRunIterationImplementStripsWithNoResults(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	issueFile := createIssueFile(t, dir, issue.StateTodo, "Clean Issue")
 	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
 
