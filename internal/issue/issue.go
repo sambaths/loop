@@ -115,6 +115,7 @@ type IssueHeader struct {
 	GitHubNum int
 	ExecMode  string
 	Branch    string
+	Type      string
 }
 
 type IssueFile struct {
@@ -123,6 +124,7 @@ type IssueFile struct {
 	ExecMode  string
 	Branch    string
 	Checksum  string
+	Type      string
 	Retries   int
 	FilePath  string
 	State     State
@@ -543,6 +545,8 @@ func ParseIssueFile(path string) (*IssueFile, error) {
 			f.Branch = strings.TrimSpace(strings.TrimPrefix(line, "Branch:"))
 		case strings.HasPrefix(line, "Checksum:"):
 			f.Checksum = strings.TrimSpace(strings.TrimPrefix(line, "Checksum:"))
+		case strings.HasPrefix(line, "Type:"):
+			f.Type = strings.TrimSpace(strings.TrimPrefix(line, "Type:"))
 		case strings.HasPrefix(line, "Retry:"):
 			trimmed := strings.TrimSpace(strings.TrimPrefix(line, "Retry:"))
 			if n, err := strconv.Atoi(trimmed); err == nil {
@@ -741,6 +745,8 @@ func ParseIssueHeader(content string) (*IssueHeader, error) {
 			h.ExecMode = strings.TrimSpace(strings.TrimPrefix(line, "Execution mode:"))
 		case strings.HasPrefix(line, "Branch:"):
 			h.Branch = strings.TrimSpace(strings.TrimPrefix(line, "Branch:"))
+		case strings.HasPrefix(line, "Type:"):
+			h.Type = strings.TrimSpace(strings.TrimPrefix(line, "Type:"))
 		}
 	}
 	return h, nil

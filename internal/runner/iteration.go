@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sambaths/loop/internal/agent"
@@ -50,8 +51,20 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 	}
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
-		commitMsg := fmt.Sprintf("loop: %s — %s", issueFile.Title, *promise)
-		if err := git.CommitAll(commitMsg); err != nil {
+		commitType := inferCommitType(issueFile)
+		subject := fmt.Sprintf("%s: %s", commitType, issueFile.Title)
+		var bodyBuilder strings.Builder
+		if sections, secErr := issue.ParseIssueSections(string(content)); secErr == nil {
+			if wb, ok := sections["what to build"]; ok && wb != "" {
+				para := strings.SplitN(wb, "\n\n", 2)[0]
+				bodyBuilder.WriteString(strings.TrimSpace(para))
+			}
+		}
+		if stat, statErr := git.DiffStat(); statErr == nil && stat != "" {
+			bodyBuilder.WriteString("\n\nChanged files:\n")
+			bodyBuilder.WriteString(stat)
+		}
+		if err := git.CommitDetailed(subject, bodyBuilder.String()); err != nil {
 			return "", fmt.Errorf("commit changes: %w", err)
 		}
 	}
@@ -90,11 +103,38 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 	}
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
-		commitMsg := fmt.Sprintf("loop: %s — %s", issueFile.Title, *promise)
-		if err := git.CommitAll(commitMsg); err != nil {
+		commitType := inferCommitType(issueFile)
+		subject := fmt.Sprintf("%s: %s", commitType, issueFile.Title)
+		var bodyBuilder strings.Builder
+		if sections, secErr := issue.ParseIssueSections(string(content)); secErr == nil {
+			if wb, ok := sections["what to build"]; ok && wb != "" {
+				para := strings.SplitN(wb, "\n\n", 2)[0]
+				bodyBuilder.WriteString(strings.TrimSpace(para))
+			}
+		}
+		if stat, statErr := git.DiffStat(); statErr == nil && stat != "" {
+			bodyBuilder.WriteString("\n\nChanged files:\n")
+			bodyBuilder.WriteString(stat)
+		}
+		if err := git.CommitDetailed(subject, bodyBuilder.String()); err != nil {
 			return "", fmt.Errorf("commit changes: %w", err)
 		}
 	}
 
 	return *promise, nil
+}
+
+func inferCommitType(f *issue.IssueFile) string {
+	if f.Type != "" {
+		return f.Type
+	}
+	title := strings.ToLower(f.Title)
+	if strings.HasPrefix(title, "fix") || strings.HasPrefix(title, "bug") {
+		return "bug"
+	}
+	if strings.HasPrefix(title, "add") || strings.HasPrefix(title, "implement") ||
+		strings.HasPrefix(title, "feat") {
+		return "feat"
+	}
+	return "enhancement"
 }

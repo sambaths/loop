@@ -122,6 +122,33 @@ func CommitAll(msg string) error {
 	return nil
 }
 
+func CommitDetailed(subject, body string) error {
+	_, stderr, err := RunGit("add", "-A")
+	if err != nil {
+		return fmt.Errorf("git add: %s: %w", stderr, err)
+	}
+	args := []string{"commit", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
+	}
+	_, stderr, err = RunGit(args...)
+	if err != nil {
+		if strings.Contains(stderr, "nothing to commit") {
+			return nil
+		}
+		return fmt.Errorf("git commit: %s: %w", stderr, err)
+	}
+	return nil
+}
+
+func DiffStat() (string, error) {
+	stdout, stderr, err := RunGit("diff", "--stat", "--cached")
+	if err != nil {
+		return "", fmt.Errorf("git diff --stat: %s: %w", stderr, err)
+	}
+	return stdout, nil
+}
+
 func TempBranchName(slug string) string {
 	return "loop/" + slug
 }
