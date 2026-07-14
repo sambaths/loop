@@ -138,22 +138,21 @@ func TestLogAppend(t *testing.T) {
 	}
 }
 
-func TestLogCap(t *testing.T) {
+func TestLogPreservesAllEntries(t *testing.T) {
 	m := NewModel(config.Config{}, 5).(*Model)
 	for i := 0; i < 25; i++ {
 		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("log %d", i)})
 		m = r.(*Model)
 	}
 
-	if len(m.logs) > maxLogLines {
-		t.Errorf("expected at most %d log entries, got %d", maxLogLines, len(m.logs))
+	if len(m.logs) != 25 {
+		t.Errorf("expected 25 log entries, got %d", len(m.logs))
 	}
 	if m.logs[len(m.logs)-1] != "log 24" {
 		t.Errorf("expected last log %q, got %q", "log 24", m.logs[len(m.logs)-1])
 	}
-	// First entry should have been trimmed
-	if m.logs[0] != "log 5" {
-		t.Errorf("expected first log %q after trim, got %q", "log 5", m.logs[0])
+	if m.logs[0] != "log 0" {
+		t.Errorf("expected first log %q, got %q", "log 0", m.logs[0])
 	}
 }
 
@@ -267,6 +266,7 @@ func TestViewShowsLogs(t *testing.T) {
 	m.iteration = 1
 	m.total = 3
 	m.logs = []string{"scanning issues...", "selected: Implement auth", "running agent..."}
+	m.updateLogViewport()
 
 	view := m.View()
 	if !strings.Contains(view, "scanning issues...") {
@@ -293,6 +293,9 @@ func TestViewHelpText(t *testing.T) {
 
 	if !strings.Contains(view, "q to quit") {
 		t.Error("expected help text 'q to quit' in view")
+	}
+	if !strings.Contains(view, "Auto-scroll:") {
+		t.Error("expected 'Auto-scroll:' in view")
 	}
 }
 
@@ -348,23 +351,6 @@ func TestUpdateNonExistentKeyDoesNotChangeState(t *testing.T) {
 	}
 	if m2.iteration != 1 {
 		t.Errorf("expected iteration to remain 1, got %d", m2.iteration)
-	}
-}
-
-func TestLogDoesNotExceedMaxLines(t *testing.T) {
-	m := NewModel(config.Config{}, 5).(*Model)
-	for i := 0; i < maxLogLines+10; i++ {
-		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("line %d", i)})
-		m = r.(*Model)
-	}
-
-	if len(m.logs) > maxLogLines {
-		t.Errorf("expected at most %d log lines, got %d", maxLogLines, len(m.logs))
-	}
-	// After maxLogLines+10 entries, the first retained entry is at index 10.
-	expectedFirst := fmt.Sprintf("line %d", maxLogLines/2)
-	if m.logs[0] != expectedFirst {
-		t.Errorf("expected first log %q, got %q", expectedFirst, m.logs[0])
 	}
 }
 
@@ -696,5 +682,182 @@ func TestCancelIsNilSafe(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("expected tea.Quit cmd")
+	}
+}
+
+func TestAutoScrollEnabledByDefault(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	if !m.autoOn {
+		t.Error("expected auto-scroll to be enabled by default")
+	}
+}
+
+func TestAutoScrollToggle(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+
+	r1, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m2 := r1.(*Model)
+	if m2.autoOn {
+		t.Error("expected auto-scroll to be disabled after s")
+	}
+
+	r2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m3 := r2.(*Model)
+	if !m3.autoOn {
+		t.Error("expected auto-scroll to be re-enabled after second s")
+	}
+}
+
+func TestManualScrollDisablesAutoScroll(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m2 := r.(*Model)
+	if m2.autoOn {
+		t.Error("expected auto-scroll to be disabled after manual scroll")
+	}
+}
+
+func TestGEndReenablesAutoScroll(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.autoOn = false
+
+	r1, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m2 := r1.(*Model)
+	if !m2.autoOn {
+		t.Error("expected auto-scroll to be enabled after G")
+	}
+}
+
+func TestEndReenablesAutoScroll(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.autoOn = false
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m2 := r.(*Model)
+	if !m2.autoOn {
+		t.Error("expected auto-scroll to be enabled after End")
+	}
+}
+
+func TestHomeDisablesAutoScroll(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	m2 := r.(*Model)
+	if m2.autoOn {
+		t.Error("expected auto-scroll to be disabled after Home")
+	}
+}
+
+func TestGDisablesAutoScroll(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m2 := r.(*Model)
+	if m2.autoOn {
+		t.Error("expected auto-scroll to be disabled after g")
+	}
+}
+
+func TestViewportScrollDown(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	for i := 0; i < 50; i++ {
+		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("log line %d", i)})
+		m = r.(*Model)
+	}
+	// Scroll to top first (disables auto-scroll)
+	m.viewport.GotoTop()
+	m.autoOn = false
+	initialOffset := m.viewport.YOffset
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m2 := r.(*Model)
+
+	if m2.viewport.YOffset <= initialOffset {
+		t.Error("expected viewport YOffset to increase after scroll down")
+	}
+}
+
+func TestViewportScrollUp(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	for i := 0; i < 50; i++ {
+		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("log line %d", i)})
+		m = r.(*Model)
+	}
+	m.viewport.GotoBottom()
+	initialOffset := m.viewport.YOffset
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m2 := r.(*Model)
+
+	if m2.viewport.YOffset >= initialOffset {
+		t.Error("expected viewport YOffset to decrease after scroll up")
+	}
+}
+
+func TestViewportGotoTop(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	for i := 0; i < 50; i++ {
+		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("log line %d", i)})
+		m = r.(*Model)
+	}
+	m.viewport.GotoBottom()
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m2 := r.(*Model)
+
+	if m2.viewport.YOffset != 0 {
+		t.Errorf("expected YOffset 0 after g, got %d", m2.viewport.YOffset)
+	}
+}
+
+func TestViewportGotoBottom(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	for i := 0; i < 50; i++ {
+		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("log line %d", i)})
+		m = r.(*Model)
+	}
+	m.viewport.GotoTop()
+
+	r, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m2 := r.(*Model)
+
+	if m2.viewport.YOffset != m2.viewport.TotalLineCount()-m2.viewport.Height {
+		t.Errorf("expected YOffset at bottom, got %d (total lines: %d, height: %d)",
+			m2.viewport.YOffset, m2.viewport.TotalLineCount(), m2.viewport.Height)
+	}
+}
+
+func TestAutoScrollScrollsToBottomOnNewLog(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	for i := 0; i < 50; i++ {
+		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("log line %d", i)})
+		m = r.(*Model)
+	}
+	m.viewport.GotoTop()
+	m.autoOn = true
+
+	r, _ := m.Update(LogMsg{Text: "new log line"})
+	m2 := r.(*Model)
+
+	expectedBottom := m2.viewport.TotalLineCount() - m2.viewport.Height
+	if m2.viewport.YOffset != expectedBottom {
+		t.Errorf("expected viewport YOffset %d at bottom, got %d", expectedBottom, m2.viewport.YOffset)
+	}
+}
+
+func TestAutoScrollViewDisplaysLogLines(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	for i := 0; i < 10; i++ {
+		r, _ := m.Update(LogMsg{Text: fmt.Sprintf("visible line %d", i)})
+		m = r.(*Model)
+	}
+
+	view := m.View()
+	for i := 0; i < 10; i++ {
+		if !strings.Contains(view, fmt.Sprintf("visible line %d", i)) {
+			t.Errorf("expected view to contain 'visible line %d'", i)
+		}
 	}
 }

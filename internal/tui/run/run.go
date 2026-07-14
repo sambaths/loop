@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sambaths/loop/internal/config"
 )
 
-const maxLogLines = 20
+const maxLogLines = 5000
 
 // ProgressMsg reports an iteration progress update.
 type ProgressMsg struct {
@@ -65,6 +66,10 @@ type Model struct {
 	doneChan   chan error
 	startRunFn func()
 	cancel     context.CancelFunc
+
+	// viewport for scrollable logs
+	viewport viewport.Model
+	autoOn   bool
 }
 
 var (
@@ -86,9 +91,11 @@ var (
 
 func NewModel(cfg config.Config, maxIter int) tea.Model {
 	return &Model{
-		cfg:     cfg,
-		maxIter: maxIter,
-		total:   maxIter,
+		cfg:      cfg,
+		maxIter:  maxIter,
+		total:    maxIter,
+		viewport: viewport.New(80, 20),
+		autoOn:   true,
 	}
 }
 
@@ -110,6 +117,8 @@ func NewStreamingModel(cfg config.Config, maxIter int, cancel context.CancelFunc
 		doneChan:   doneChan,
 		startRunFn: func() { startRun(logChan, iterChan, doneChan) },
 		cancel:     cancel,
+		viewport:   viewport.New(80, 20),
+		autoOn:     true,
 	}
 }
 
@@ -154,6 +163,15 @@ func (m *Model) tick() tea.Cmd {
 	})
 }
 
+func (m *Model) updateLogViewport() {
+	var b strings.Builder
+	for _, l := range m.logs {
+		b.WriteString(logStyle.Render(l))
+		b.WriteString("\n")
+	}
+	m.viewport.SetContent(b.String())
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -164,7 +182,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.quit = true
 			return m, tea.Quit
+		case "s":
+			m.autoOn = !m.autoOn
+			if m.autoOn {
+				m.viewport.GotoBottom()
+			}
+			return m, nil
+		case "up", "down", "pgup", "pgdn", "halfpgup", "halfpgdn":
+			m.autoOn = false
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		case "g", "home":
+			m.autoOn = false
+			m.viewport.GotoTop()
+			return m, nil
+		case "G", "end":
+			m.autoOn = true
+			m.viewport.GotoBottom()
+			return m, nil
 		}
+	case tea.WindowSizeMsg:
+		m.viewport.Width = msg.Width - 2
+		headerH := m.headerHeight()
+		m.viewport.Height = msg.Height - headerH - m.footerHeight()
+		return m, nil
 	case tickMsg:
 		if !m.Finished && !m.quit && !m.startTime.IsZero() {
 			m.elapsed = time.Since(m.startTime)
@@ -189,6 +231,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isGHWarning(msg.Text) {
 			m.warnings = append(m.warnings, msg.Text)
 		}
+		m.updateLogViewport()
+		if m.autoOn {
+			m.viewport.GotoBottom()
+		}
 		return m, m.listen()
 	case CompletionMsg:
 		m.Finished = true
@@ -208,6 +254,21 @@ func (m *Model) View() string {
 		return m.completionView()
 	}
 	return m.progressView()
+}
+
+func (m *Model) headerHeight() int {
+	h := 16
+	if m.phase != "" {
+		h += 2
+	}
+	if len(m.warnings) > 0 {
+		h += 2
+	}
+	return h
+}
+
+func (m *Model) footerHeight() int {
+	return 2
 }
 
 // isGHWarning detects GitHub-related warnings and failures in log messages.
@@ -264,11 +325,15 @@ func (m *Model) progressView() string {
 		s += warnStyle.Render(fmt.Sprintf("gh warnings: %d", len(m.warnings))) + "\n\n"
 	}
 
-	for _, l := range m.logs {
-		s += logStyle.Render(l) + "\n"
-	}
+	s += m.viewport.View()
+	s += "\n"
 
-	s += "\n" + helpStyle.Render("q to quit")
+	autoLabel := "ON"
+	if !m.autoOn {
+		autoLabel = "OFF"
+	}
+	s += helpStyle.Render(fmt.Sprintf("Auto-scroll: %s  ", autoLabel))
+	s += helpStyle.Render("↑↓/pgup/pgdn scroll  s toggle  q to quit")
 	return s
 }
 
