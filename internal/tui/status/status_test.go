@@ -705,6 +705,188 @@ func TestStatusScreenshotHelpText(t *testing.T) {
 	}
 }
 
+func TestStatusScroll(t *testing.T) {
+	dir := t.TempDir()
+	issuesDir := filepath.Join(dir, "issues")
+	setupIssueDirs(t, issuesDir)
+	for i := 0; i < 20; i++ {
+		writeIssue(t, filepath.Join(issuesDir, fmt.Sprintf("i-%d.md", i)), fmt.Sprintf("Long running issue number %d with extra text to test scrolling", i))
+	}
+
+	cfg := config.Config{IssueDir: issuesDir}
+	m := NewModel(cfg).(model)
+	m.page = pageTodo
+
+	for i := range m.viewports {
+		m.viewports[i].Height = 3
+	}
+	m.updateAllViewportContent()
+
+	if m.viewports[m.page].YOffset != 0 {
+		t.Errorf("expected initial YOffset 0, got %d", m.viewports[m.page].YOffset)
+	}
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(model)
+	if m.viewports[m.page].YOffset <= 0 {
+		t.Errorf("expected YOffset > 0 after down, got %d", m.viewports[m.page].YOffset)
+	}
+
+	firstY := m.viewports[m.page].YOffset
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = result.(model)
+	if m.viewports[m.page].YOffset >= firstY {
+		t.Errorf("expected YOffset < %d after up, got %d", firstY, m.viewports[m.page].YOffset)
+	}
+
+	m.viewports[m.page].SetYOffset(10)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = result.(model)
+	if m.viewports[m.page].YOffset != 0 {
+		t.Errorf("expected YOffset 0 after 'g', got %d", m.viewports[m.page].YOffset)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = result.(model)
+	if m.viewports[m.page].YOffset <= 0 {
+		t.Errorf("expected YOffset > 0 after 'G', got %d", m.viewports[m.page].YOffset)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	m = result.(model)
+	if m.viewports[m.page].YOffset != 0 {
+		t.Errorf("expected YOffset 0 after home, got %d", m.viewports[m.page].YOffset)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = result.(model)
+	if m.viewports[m.page].YOffset <= 0 {
+		t.Errorf("expected YOffset > 0 after end, got %d", m.viewports[m.page].YOffset)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = result.(model)
+	if m.viewports[m.page].YOffset <= 0 {
+		t.Errorf("expected YOffset > 0 after pgdn, got %d", m.viewports[m.page].YOffset)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, scrollTrack) && !strings.Contains(view, scrollThumb) {
+		t.Error("expected scroll bar characters in view when content overflows")
+	}
+}
+
+func TestStatusScrollPreservesPage(t *testing.T) {
+	dir := t.TempDir()
+	issuesDir := filepath.Join(dir, "issues")
+	setupIssueDirs(t, issuesDir)
+	for i := 0; i < 20; i++ {
+		writeIssue(t, filepath.Join(issuesDir, fmt.Sprintf("i-%d.md", i)), fmt.Sprintf("Issue %d", i))
+		writeIssue(t, filepath.Join(issuesDir, "test-ready", fmt.Sprintf("tr-%d.md", i)), fmt.Sprintf("Ready %d", i))
+	}
+
+	cfg := config.Config{IssueDir: issuesDir}
+	m := NewModel(cfg).(model)
+	m.page = pageTodo
+
+	for i := range m.viewports {
+		m.viewports[i].Height = 3
+	}
+	m.updateAllViewportContent()
+
+	yOffsetTodoInitial := m.viewports[pageTodo].YOffset
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(model)
+	yOffsetTodoAfterDown := m.viewports[pageTodo].YOffset
+	if yOffsetTodoAfterDown <= yOffsetTodoInitial {
+		t.Error("expected YOffset to increase after down arrow on todo page")
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = result.(model)
+	if m.page != pageTestReady {
+		t.Errorf("expected pageTestReady after tab, got %d", m.page)
+	}
+
+	if m.viewports[pageTestReady].YOffset != 0 {
+		t.Errorf("expected test-ready YOffset 0 when first navigated to, got %d", m.viewports[pageTestReady].YOffset)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(model)
+	yOffsetTestReady := m.viewports[pageTestReady].YOffset
+	if yOffsetTestReady <= 0 {
+		t.Error("expected test-ready YOffset > 0 after scrolling")
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = result.(model)
+	if m.page != pageTodo {
+		t.Errorf("expected pageTodo after shift+tab, got %d", m.page)
+	}
+
+	if m.viewports[pageTodo].YOffset != yOffsetTodoAfterDown {
+		t.Errorf("expected todo YOffset %d preserved after returning, got %d", yOffsetTodoAfterDown, m.viewports[pageTodo].YOffset)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = result.(model)
+	if m.viewports[pageTestReady].YOffset != yOffsetTestReady {
+		t.Errorf("expected test-ready YOffset %d preserved after returning, got %d", yOffsetTestReady, m.viewports[pageTestReady].YOffset)
+	}
+}
+
+func TestStatusWindowResize(t *testing.T) {
+	dir := t.TempDir()
+	issuesDir := filepath.Join(dir, "issues")
+	os.MkdirAll(issuesDir, 0755)
+
+	cfg := config.Config{IssueDir: issuesDir}
+	m := NewModel(cfg).(model)
+
+	msg := tea.WindowSizeMsg{Width: 100, Height: 40}
+	result, _ := m.Update(msg)
+	m = result.(model)
+
+	expectedWidth := 99
+	expectedHeight := 40 - 3 - 2
+
+	if m.viewports[0].Width != expectedWidth {
+		t.Errorf("expected viewport width %d after resize, got %d", expectedWidth, m.viewports[0].Width)
+	}
+	if m.viewports[0].Height != expectedHeight {
+		t.Errorf("expected viewport height %d after resize, got %d", expectedHeight, m.viewports[0].Height)
+	}
+
+	for i := 1; i < len(m.viewports); i++ {
+		if m.viewports[i].Width != expectedWidth {
+			t.Errorf("viewport[%d] width: expected %d, got %d", i, expectedWidth, m.viewports[i].Width)
+		}
+		if m.viewports[i].Height != expectedHeight {
+			t.Errorf("viewport[%d] height: expected %d, got %d", i, expectedHeight, m.viewports[i].Height)
+		}
+	}
+}
+
+func TestStatusScrollFitsNoScrollBar(t *testing.T) {
+	dir := t.TempDir()
+	issuesDir := filepath.Join(dir, "issues")
+	os.MkdirAll(issuesDir, 0755)
+
+	cfg := config.Config{IssueDir: issuesDir}
+	m := NewModel(cfg).(model)
+
+	for i := range m.viewports {
+		m.viewports[i].Height = 20
+	}
+
+	view := m.View()
+	if strings.Contains(view, scrollTrack) {
+		t.Error("expected no scroll bar characters when content fits")
+	}
+}
+
 func containsCount(s string, count int) bool {
 	return strings.Contains(s, fmt.Sprintf("%d", count))
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -42,6 +43,7 @@ type model struct {
 	title           string
 	quit            bool
 	screenshotSaved string
+	viewports       []viewport.Model
 }
 
 var (
@@ -71,10 +73,38 @@ func NewModel(cfg config.Config) tea.Model {
 	m.stuckTestReady, _ = issue.FindStuckTestReadyFiles(m.cfg.IssueDir)
 	m.invalidExecModes, _ = issue.FindInvalidExecModes(m.cfg.IssueDir)
 	m.transitions, _ = issue.ReadTransitionLog(m.cfg.IssueDir, 5)
+	m.viewports = make([]viewport.Model, pageCount)
+	for i := range m.viewports {
+		m.viewports[i] = viewport.New(80, 20)
+	}
+	m.updateAllViewportContent()
 	return m
 }
 
 func (m model) Init() tea.Cmd { return nil }
+
+func (m model) contentForPage(p page) string {
+	switch p {
+	case pageOverview:
+		return m.overviewView()
+	case pageTodo:
+		return m.issueList("todo", m.todo)
+	case pageTestReady:
+		return m.issueList("test-ready", m.testReady)
+	case pageDone:
+		return m.issueList("done", m.done)
+	case pageQuarantine:
+		return m.issueList("quarantined", m.quarantined)
+	default:
+		return ""
+	}
+}
+
+func (m model) updateAllViewportContent() {
+	for i := range m.viewports {
+		m.viewports[i].SetContent(m.contentForPage(page(i)))
+	}
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -100,7 +130,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.screenshotSaved = fmt.Sprintf("screenshot saved: %s", name)
 			}
 			return m, clearScreenshotCmd()
+		case "up", "down", "pgup", "pgdn", "halfpgup", "halfpgdn":
+			var cmd tea.Cmd
+			m.viewports[m.page], cmd = m.viewports[m.page].Update(msg)
+			return m, cmd
+		case "home", "g":
+			m.viewports[m.page].GotoTop()
+			return m, nil
+		case "end", "G":
+			m.viewports[m.page].GotoBottom()
+			return m, nil
 		}
+	case tea.WindowSizeMsg:
+		headerH := 3
+		footerH := 2
+		if m.screenshotSaved != "" {
+			footerH = 3
+		}
+		vpHeight := msg.Height - headerH - footerH
+		if vpHeight < 1 {
+			vpHeight = 1
+		}
+		for i := range m.viewports {
+			m.viewports[i].Width = msg.Width - 1
+			m.viewports[i].Height = vpHeight
+		}
+		return m, nil
 	case screenshotMsg:
 		m.screenshotSaved = ""
 		return m, nil
@@ -123,26 +178,36 @@ func (m model) View() string {
 	if m.screenshotSaved != "" {
 		s += savedOkStyle.Render(m.screenshotSaved) + "\n"
 	}
-	s += helpStyle.Render(fmt.Sprintf("Page %d/%d · tab/arrows to navigate · s screenshot · q to quit", int(m.page)+1, int(pageCount)))
+	s += helpStyle.Render(fmt.Sprintf("Page %d/%d · tab/arrows navigate · ↑↓/pgup/pgdn scroll · s screenshot · q to quit", int(m.page)+1, int(pageCount)))
 	return s
 }
 
 func (m model) pageView() string {
-	switch m.page {
-	case pageOverview:
-		return m.overviewView()
-	case pageTodo:
-		return m.issueList("todo", m.todo)
-	case pageTestReady:
-		return m.issueList("test-ready", m.testReady)
-	case pageDone:
-		return m.issueList("done", m.done)
-	case pageQuarantine:
-		return m.issueList("quarantined", m.quarantined)
-	default:
-		return ""
+	vp := m.viewports[m.page]
+	content := vp.View()
+	if vp.TotalLineCount() <= vp.Height {
+		return content
 	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	perc := vp.ScrollPercent()
+	thumb := int(math.Round(perc * float64(len(lines)-1)))
+	for i := range lines {
+		if i == thumb {
+			lines[i] += scrollThumb
+		} else {
+			lines[i] += scrollTrack
+		}
+	}
+	return strings.Join(lines, "\n")
 }
+
+const (
+	scrollTrack = "│"
+	scrollThumb = "▓"
+)
 
 func (m model) overviewView() string {
 	s := "Pipeline overview\n\n"
