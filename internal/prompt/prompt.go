@@ -108,23 +108,32 @@ Before outputting COMPLETE, add a ` + "`" + `## Test Results` + "`" + ` section 
 ## Commit message
 
 Before outputting COMPLETE, include a commit message describing your
-changes wrapped in sentinel lines:
+changes wrapped in sentinel lines. Write a REAL message based on
+what you actually changed — do not use placeholders.
+
+Format:
 
 ` + "```" + `
 __LOOP_COMMIT__
 <type>: <short summary>
 
 <detailed description of what changed and why>
+__LOOP_COMMIT_END__
+` + "```" + `
 
-Changed files:
- <file1> | <changes>
- <file2> | <changes>
+Example (replace with your actual changes):
+
+` + "```" + `
+__LOOP_COMMIT__
+feat: add login form validation
+
+Add client-side validation for the login form email and password
+fields. Uses the existing Validator utility class.
 __LOOP_COMMIT_END__
 ` + "```" + `
 
 The type should be one of: feat, fix, bug, enhancement, chore, test, docs.
 The body should explain WHY the change was made, not just what changed.
-Include a "Changed files:" section at the end listing each modified file.
 
 ## Bidirectional sync (GitHub only)
 
