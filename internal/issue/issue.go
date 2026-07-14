@@ -179,6 +179,7 @@ type PipelineState struct {
 	DoneFiles          []string
 	QuarantineFiles    []string
 	UnableFiles        []string
+	Files              map[string]*IssueFile
 }
 
 func (ps *PipelineState) Counts() map[State]int {
@@ -217,14 +218,32 @@ func ScanIssueDir(root string) (*PipelineState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan unable: %w", err)
 	}
-	return &PipelineState{
+	ps := &PipelineState{
 		TodoFiles:          todo,
 		TestReadyFiles:     testReady,
 		ReadyForAgentFiles: readyForAgent,
 		DoneFiles:          done,
 		QuarantineFiles:    quarantine,
 		UnableFiles:        unable,
-	}, nil
+	}
+
+	// Populate Files cache after initial scan so parsing errors in individual
+	// files don't block the scan itself.
+	allPaths := ps.TodoFiles
+	allPaths = append(allPaths, ps.TestReadyFiles...)
+	allPaths = append(allPaths, ps.ReadyForAgentFiles...)
+	allPaths = append(allPaths, ps.DoneFiles...)
+	allPaths = append(allPaths, ps.QuarantineFiles...)
+	allPaths = append(allPaths, ps.UnableFiles...)
+
+	ps.Files = make(map[string]*IssueFile, len(allPaths))
+	for _, p := range allPaths {
+		if f, err := ParseIssueFile(p); err == nil {
+			ps.Files[p] = f
+		}
+	}
+
+	return ps, nil
 }
 
 func scanDirFiles(dir string) ([]string, error) {
@@ -938,7 +957,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 	// Skip files that already have populated UAT Results — they were tested
 	// but the transition was interrupted; leave them for manual triage.
 	for _, f := range state.TestReadyFiles {
-		issueFile, err := ParseIssueFile(f)
+		issueFile, err := getCachedIssueFile(state, f)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse test-ready file: %w", err)
 		}
@@ -960,7 +979,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 
 	// Priority 2: pick first unblocked AFK-only issue from ready-for-agent/.
 	for _, f := range state.ReadyForAgentFiles {
-		issueFile, err := ParseIssueFile(f)
+		issueFile, err := getCachedIssueFile(state, f)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse ready-for-agent file: %w", err)
 		}
@@ -980,7 +999,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 
 	// Priority 3: pick first unblocked AFK-only issue from issues/.
 	for _, f := range state.TodoFiles {
-		issueFile, err := ParseIssueFile(f)
+		issueFile, err := getCachedIssueFile(state, f)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse todo file: %w", err)
 		}
@@ -1001,7 +1020,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 	// Priority 4 (fallback): pick first unblocked HITL-only issue. These are
 	// handled specially by the iteration code (no agent run, NO_MORE_TASKS).
 	for _, f := range state.ReadyForAgentFiles {
-		issueFile, err := ParseIssueFile(f)
+		issueFile, err := getCachedIssueFile(state, f)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse ready-for-agent file: %w", err)
 		}
@@ -1019,7 +1038,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 		return issueFile, RoleImplement, nil
 	}
 	for _, f := range state.TodoFiles {
-		issueFile, err := ParseIssueFile(f)
+		issueFile, err := getCachedIssueFile(state, f)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse todo file: %w", err)
 		}
@@ -1046,7 +1065,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 // checks that the execution mode allows autonomous implementation.
 func FindIssueByNum(state *PipelineState, num int) (*IssueFile, Role, error) {
 	for _, path := range state.DoneFiles {
-		f, err := ParseIssueFile(path)
+		f, err := getCachedIssueFile(state, path)
 		if err != nil {
 			continue
 		}
@@ -1055,7 +1074,7 @@ func FindIssueByNum(state *PipelineState, num int) (*IssueFile, Role, error) {
 		}
 	}
 	for _, path := range state.TodoFiles {
-		f, err := ParseIssueFile(path)
+		f, err := getCachedIssueFile(state, path)
 		if err != nil {
 			continue
 		}
@@ -1067,7 +1086,7 @@ func FindIssueByNum(state *PipelineState, num int) (*IssueFile, Role, error) {
 		}
 	}
 	for _, path := range state.ReadyForAgentFiles {
-		f, err := ParseIssueFile(path)
+		f, err := getCachedIssueFile(state, path)
 		if err != nil {
 			continue
 		}
@@ -1079,7 +1098,7 @@ func FindIssueByNum(state *PipelineState, num int) (*IssueFile, Role, error) {
 		}
 	}
 	for _, path := range state.TestReadyFiles {
-		f, err := ParseIssueFile(path)
+		f, err := getCachedIssueFile(state, path)
 		if err != nil {
 			continue
 		}
@@ -1736,7 +1755,7 @@ func AddMissingChecksums(root string, checksumsEnabled bool) (int, error) {
 
 	var modified int
 	for _, p := range allPaths {
-		f, err := ParseIssueFile(p)
+		f, err := getCachedIssueFile(ps, p)
 		if err != nil {
 			continue
 		}
@@ -2119,7 +2138,7 @@ func DetectDuplicateGitHubNums(state *PipelineState) []PreFlightIssue {
 
 	ghNums := make(map[int][]string)
 	for _, p := range allPaths {
-		f, err := ParseIssueFile(p)
+		f, err := getCachedIssueFile(state, p)
 		if err != nil {
 			continue
 		}
@@ -2155,7 +2174,7 @@ func DetectDuplicateTitles(state *PipelineState) []PreFlightIssue {
 
 	byTitle := make(map[string][]string)
 	for _, p := range allPaths {
-		f, err := ParseIssueFile(p)
+		f, err := getCachedIssueFile(state, p)
 		if err != nil {
 			continue
 		}
@@ -2198,16 +2217,12 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	allPaths = append(allPaths, state.QuarantineFiles...)
 
 	ghNums := make(map[int][]string)
-	parsed := make(map[string]*IssueFile)
 
 	for _, p := range allPaths {
-		f, err := ParseIssueFile(p)
-		if err != nil {
-			continue
-		}
-		parsed[p] = f
-		if f.GitHubNum > 0 {
-			ghNums[f.GitHubNum] = append(ghNums[f.GitHubNum], p)
+		if f, err := getCachedIssueFile(state, p); err == nil {
+			if f.GitHubNum > 0 {
+				ghNums[f.GitHubNum] = append(ghNums[f.GitHubNum], p)
+			}
 		}
 	}
 
@@ -2244,7 +2259,7 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 			continue
 		}
 		blockers := ParseBlockedBy(string(data))
-		f := parsed[p]
+		f, _ := getCachedIssueFile(state, p)
 		for _, b := range blockers {
 			num, ok := extractBlockerNum(b)
 			if !ok {
@@ -2272,8 +2287,8 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	}
 
 	for _, p := range allPaths {
-		f, ok := parsed[p]
-		if !ok {
+		f, err := getCachedIssueFile(state, p)
+		if err != nil {
 			continue
 		}
 		if f.ExecMode == "" {
@@ -2292,8 +2307,8 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	}
 
 	for _, p := range allPaths {
-		f, ok := parsed[p]
-		if !ok {
+		f, err := getCachedIssueFile(state, p)
+		if err != nil {
 			continue
 		}
 		if f.State == StateDone || f.State == StateQuarantine || f.State == StateUnable {
@@ -2323,8 +2338,8 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 
 	if checksumsEnabled {
 		for _, p := range allPaths {
-			f, ok := parsed[p]
-			if !ok {
+			f, err := getCachedIssueFile(state, p)
+			if err != nil {
 				continue
 			}
 			if f.Checksum == "" {
@@ -2679,4 +2694,133 @@ func quarantineNonCanonical(state *PipelineState, quarantineSet map[string]bool,
 	}
 
 	return quarantined, issues
+}
+
+// getCachedIssueFile returns the parsed IssueFile for path, using the cached
+// Files map in state if available, otherwise falling back to ParseIssueFile.
+// This allows functions to benefit from the cache when populated via ScanIssueDir
+// while still working with manually-constructed PipelineState (e.g. in tests).
+func getCachedIssueFile(state *PipelineState, path string) (*IssueFile, error) {
+	if state.Files != nil {
+		if f, ok := state.Files[path]; ok {
+			return f, nil
+		}
+	}
+	return ParseIssueFile(path)
+}
+
+// QuarantineAll detects AND quarantines duplicates across all three dimensions
+// (filename, GitHub number, title) in a single pass. It builds a combined
+// quarantine set, then calls quarantineNonCanonical once to move all
+// non-canonical files to .quarantine. Returns the total count of files moved
+// and all PreFlightIssue entries describing each duplicate group.
+func QuarantineAll(state *PipelineState) (quarantined int, issues []PreFlightIssue) {
+	allPaths := state.TodoFiles
+	allPaths = append(allPaths, state.TestReadyFiles...)
+	allPaths = append(allPaths, state.ReadyForAgentFiles...)
+	allPaths = append(allPaths, state.DoneFiles...)
+
+	quarantineSet := make(map[string]bool)
+
+	// 1. Filename collisions: same basename in different state dirs.
+	byBasename := make(map[string][]string)
+	for _, p := range allPaths {
+		base := filepath.Base(p)
+		byBasename[base] = append(byBasename[base], p)
+	}
+	for base, paths := range byBasename {
+		if len(paths) <= 1 {
+			continue
+		}
+		canonical, err := PickCanonical(paths)
+		if err != nil {
+			continue
+		}
+		issues = append(issues, PreFlightIssue{
+			FilePath: canonical,
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("quarantined duplicate filename %q (keeping canonical %s, appeared in: %s)", base, filepath.Base(canonical), strings.Join(paths, ", ")),
+		})
+		for _, p := range paths {
+			if p != canonical {
+				quarantineSet[p] = true
+			}
+		}
+	}
+
+	// 2. GitHub num collisions (using ps.Files cache).
+	byNum := make(map[int][]string)
+	for _, p := range allPaths {
+		if quarantineSet[p] {
+			continue
+		}
+		f, err := getCachedIssueFile(state, p)
+		if err != nil {
+			continue
+		}
+		if f.GitHubNum > 0 {
+			byNum[f.GitHubNum] = append(byNum[f.GitHubNum], p)
+		}
+	}
+	for num, paths := range byNum {
+		if len(paths) <= 1 {
+			continue
+		}
+		canonical, err := PickCanonical(paths)
+		if err != nil {
+			continue
+		}
+		issues = append(issues, PreFlightIssue{
+			FilePath: canonical,
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("quarantined duplicate GitHub #%d (keeping canonical %s, appeared in: %s)", num, filepath.Base(canonical), strings.Join(paths, ", ")),
+		})
+		for _, p := range paths {
+			if p != canonical {
+				quarantineSet[p] = true
+			}
+		}
+	}
+
+	// 3. Title collisions (using ps.Files cache).
+	byTitle := make(map[string][]string)
+	for _, p := range allPaths {
+		if quarantineSet[p] {
+			continue
+		}
+		f, err := getCachedIssueFile(state, p)
+		if err != nil {
+			continue
+		}
+		if f.Title == "" {
+			continue
+		}
+		byTitle[f.Title] = append(byTitle[f.Title], p)
+	}
+	for title, paths := range byTitle {
+		if len(paths) <= 1 {
+			continue
+		}
+		canonical, err := PickCanonical(paths)
+		if err != nil {
+			continue
+		}
+		issues = append(issues, PreFlightIssue{
+			FilePath: canonical,
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("quarantined duplicate title %q (keeping canonical %s, appeared in: %s)", title, filepath.Base(canonical), strings.Join(paths, ", ")),
+		})
+		for _, p := range paths {
+			if p != canonical {
+				quarantineSet[p] = true
+			}
+		}
+	}
+
+	if len(quarantineSet) == 0 {
+		return 0, issues
+	}
+
+	n, qIssues := quarantineNonCanonical(state, quarantineSet, issues)
+	return n, qIssues
 }

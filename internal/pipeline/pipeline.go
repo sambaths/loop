@@ -50,7 +50,7 @@ func (p *Pipeline) Iterate() error {
 		return fmt.Errorf("scan issue dir: %w", err)
 	}
 
-	if n, _ := issue.QuarantineDuplicates(ps); n > 0 {
+	if n, _ := issue.QuarantineAll(ps); n > 0 {
 		fmt.Fprintf(os.Stderr, "quarantined %d duplicate file(s)\n", n)
 	}
 
@@ -151,23 +151,11 @@ func (p *Pipeline) Iterate() error {
 	restore()
 
 		if freshPS, psErr := issue.ScanIssueDir(p.IssueDir); psErr == nil {
-			if n, dupIssues := issue.QuarantineDuplicates(freshPS); n > 0 {
+			if n, dupIssues := issue.QuarantineAll(freshPS); n > 0 {
 				for _, di := range dupIssues {
 					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
 				}
 				fmt.Fprintf(os.Stderr, "--- quarantined %d new duplicate(s) ---\n", n)
-			}
-			if n, dupIssues := issue.QuarantineDuplicateGitHubNums(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
-				}
-				fmt.Fprintf(os.Stderr, "--- quarantined %d duplicate GitHub issue(s) ---\n", n)
-			}
-			if n, dupIssues := issue.QuarantineDuplicateTitles(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
-				}
-				fmt.Fprintf(os.Stderr, "--- quarantined %d duplicate title(s) ---\n", n)
 			}
 		}
 
@@ -213,7 +201,7 @@ func (p *Pipeline) Iterate() error {
 		return nil
 	}
 
-	target := stateFromDir(transition.DestDir, p.IssueDir)
+	target := issue.StateFromPath(filepath.Join(transition.DestDir, transition.Filename))
 
 	// When TEST_FAIL returns an issue from test-ready to issues/ (todo),
 	// strip test results and UAT results so they don't accumulate on retry.
@@ -249,24 +237,4 @@ func (p *Pipeline) Iterate() error {
 	return nil
 }
 
-// stateFromDir derives the issue State from a destination directory path.
-// The todo directory is the issues root itself (no subdirectory), so any path
-// that doesn't match a known state subdirectory resolves to StateTodo.
-func stateFromDir(dir, issuesDir string) issue.State {
-	base := filepath.Base(dir)
-	if base == filepath.Base(issuesDir) {
-		return issue.StateTodo
-	}
-	switch base {
-	case "test-ready":
-		return issue.StateTestReady
-	case "ready-for-agent":
-		return issue.StateReadyForAgent
-	case "done":
-		return issue.StateDone
-	case ".quarantine":
-		return issue.StateQuarantine
-	default:
-		return issue.StateTodo
-	}
-}
+

@@ -195,44 +195,44 @@ func TestPipelineCustomBranchOrigin(t *testing.T) {
 }
 
 func TestStateFromDirTodo(t *testing.T) {
-	got := stateFromDir("/tmp/issues", "/tmp/issues")
+	got := issue.StateFromPath("/tmp/issues/foo.md")
 	if got != issue.StateTodo {
-		t.Errorf("stateFromDir = %q, want %q", got, issue.StateTodo)
+		t.Errorf("StateFromPath = %q, want %q", got, issue.StateTodo)
 	}
 }
 
 func TestStateFromDirTestReady(t *testing.T) {
-	got := stateFromDir("/tmp/issues/test-ready", "/tmp/issues")
+	got := issue.StateFromPath("/tmp/issues/test-ready/foo.md")
 	if got != issue.StateTestReady {
-		t.Errorf("stateFromDir = %q, want %q", got, issue.StateTestReady)
+		t.Errorf("StateFromPath = %q, want %q", got, issue.StateTestReady)
 	}
 }
 
 func TestStateFromDirDone(t *testing.T) {
-	got := stateFromDir("/tmp/issues/done", "/tmp/issues")
+	got := issue.StateFromPath("/tmp/issues/done/foo.md")
 	if got != issue.StateDone {
-		t.Errorf("stateFromDir = %q, want %q", got, issue.StateDone)
+		t.Errorf("StateFromPath = %q, want %q", got, issue.StateDone)
 	}
 }
 
 func TestStateFromDirQuarantine(t *testing.T) {
-	got := stateFromDir("/tmp/issues/.quarantine", "/tmp/issues")
+	got := issue.StateFromPath("/tmp/issues/.quarantine/foo.md")
 	if got != issue.StateQuarantine {
-		t.Errorf("stateFromDir = %q, want %q", got, issue.StateQuarantine)
+		t.Errorf("StateFromPath = %q, want %q", got, issue.StateQuarantine)
 	}
 }
 
 func TestStateFromDirUnknown(t *testing.T) {
-	got := stateFromDir("/tmp/issues/unknown", "/tmp/issues")
+	got := issue.StateFromPath("/tmp/issues/unknown/foo.md")
 	if got != issue.StateTodo {
-		t.Errorf("stateFromDir = %q, want %q", got, issue.StateTodo)
+		t.Errorf("StateFromPath = %q, want %q", got, issue.StateTodo)
 	}
 }
 
 func TestStateFromDirIssuesDirSelf(t *testing.T) {
-	got := stateFromDir("/tmp/my-issues", "/tmp/my-issues")
+	got := issue.StateFromPath("/tmp/my-issues/foo.md")
 	if got != issue.StateTodo {
-		t.Errorf("stateFromDir = %q, want %q", got, issue.StateTodo)
+		t.Errorf("StateFromPath = %q, want %q", got, issue.StateTodo)
 	}
 }
 

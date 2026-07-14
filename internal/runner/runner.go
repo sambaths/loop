@@ -63,27 +63,6 @@ func issueFromFile(f *issue.IssueFile) issue.Issue {
 	}
 }
 
-func stateFromDir(dir, issuesDir string) issue.State {
-	base := filepath.Base(dir)
-	if base == filepath.Base(issuesDir) {
-		return issue.StateTodo
-	}
-	switch base {
-	case "test-ready":
-		return issue.StateTestReady
-	case "ready-for-agent":
-		return issue.StateReadyForAgent
-	case "done":
-		return issue.StateDone
-	case ".quarantine":
-		return issue.StateQuarantine
-	case "unable":
-		return issue.StateUnable
-	default:
-		return issue.StateTodo
-	}
-}
-
 // RunLoopStreamed is like RunLoopContext but streams agent stdout lines to
 // lineFn as they are produced. It also calls iterFn at the start of each
 // iteration with the iteration number, total, issue title, and role.
@@ -96,7 +75,7 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 			return fmt.Errorf("scan issue dir: %w", err)
 		}
 
-		issue.QuarantineDuplicates(ps)
+		issue.QuarantineAll(ps)
 
 		if pfIssues := issue.PreFlightCheck(ps, repair, cfg.ChecksumsEnabled); len(pfIssues) > 0 {
 			hasErrors := false
@@ -187,23 +166,11 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 		}
 
 		if freshPS, psErr := issue.ScanIssueDir(cfg.IssueDir); psErr == nil {
-			if n, dupIssues := issue.QuarantineDuplicates(freshPS); n > 0 {
+			if n, dupIssues := issue.QuarantineAll(freshPS); n > 0 {
 				for _, di := range dupIssues {
 					lineFn(fmt.Sprintf("%s: %s", di.Severity, di.Message))
 				}
 				lineFn(fmt.Sprintf("--- quarantined %d new duplicate(s) ---", n))
-			}
-			if n, dupIssues := issue.QuarantineDuplicateGitHubNums(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					lineFn(fmt.Sprintf("%s: %s", di.Severity, di.Message))
-				}
-				lineFn(fmt.Sprintf("--- quarantined %d duplicate GitHub issue(s) ---", n))
-			}
-			if n, dupIssues := issue.QuarantineDuplicateTitles(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					lineFn(fmt.Sprintf("%s: %s", di.Severity, di.Message))
-				}
-				lineFn(fmt.Sprintf("--- quarantined %d duplicate title(s) ---", n))
 			}
 		}
 
@@ -224,7 +191,7 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 			continue
 		}
 
-		target := stateFromDir(transition.DestDir, cfg.IssueDir)
+		target := issue.StateFromPath(filepath.Join(transition.DestDir, transition.Filename))
 
 		if target == issue.StateTodo && selectedFile.State == issue.StateTestReady {
 			if err := issue.StripSectionsFromFile(selectedFile.FilePath, []string{"Test Results", "UAT Results"}); err != nil {
@@ -290,7 +257,7 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 			return fmt.Errorf("scan issue dir: %w", err)
 		}
 
-		issue.QuarantineDuplicates(ps)
+		issue.QuarantineAll(ps)
 
 		if pfIssues := issue.PreFlightCheck(ps, repair, cfg.ChecksumsEnabled); len(pfIssues) > 0 {
 			hasErrors := false
@@ -380,23 +347,11 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 		}
 
 		if freshPS, psErr := issue.ScanIssueDir(cfg.IssueDir); psErr == nil {
-			if n, dupIssues := issue.QuarantineDuplicates(freshPS); n > 0 {
+			if n, dupIssues := issue.QuarantineAll(freshPS); n > 0 {
 				for _, di := range dupIssues {
 					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
 				}
 				fmt.Fprintf(os.Stderr, "--- quarantined %d new duplicate(s) ---\n", n)
-			}
-			if n, dupIssues := issue.QuarantineDuplicateGitHubNums(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
-				}
-				fmt.Fprintf(os.Stderr, "--- quarantined %d duplicate GitHub issue(s) ---\n", n)
-			}
-			if n, dupIssues := issue.QuarantineDuplicateTitles(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
-				}
-				fmt.Fprintf(os.Stderr, "--- quarantined %d duplicate title(s) ---\n", n)
 			}
 		}
 
@@ -417,7 +372,7 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 			continue
 		}
 
-		target := stateFromDir(transition.DestDir, cfg.IssueDir)
+		target := issue.StateFromPath(filepath.Join(transition.DestDir, transition.Filename))
 
 		if target == issue.StateTodo && selectedFile.State == issue.StateTestReady {
 			if err := issue.StripSectionsFromFile(selectedFile.FilePath, []string{"Test Results", "UAT Results"}); err != nil {

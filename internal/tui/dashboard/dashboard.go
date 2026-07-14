@@ -65,10 +65,36 @@ func NewModel(cfg config.Config) Model {
 		cfg:  cfg,
 		page: pageOverview,
 	}
-	m.todo, _ = issue.List(cfg.IssueDir, issue.StateTodo)
-	m.testReady, _ = issue.List(cfg.IssueDir, issue.StateTestReady)
-	m.done, _ = issue.List(cfg.IssueDir, issue.StateDone)
-	m.quarantined, _ = issue.List(cfg.IssueDir, issue.StateQuarantine)
+	// Use a single ScanIssueDir to populate the Files cache, avoiding
+	// re-reading every file from disk for each state.
+	ps, psErr := issue.ScanIssueDir(cfg.IssueDir)
+	if psErr == nil && ps != nil {
+		// Build issue slices from the cached Files map.
+		for _, f := range ps.Files {
+			iss := issue.Issue{
+				FilePath:  f.FilePath,
+				Title:     f.Title,
+				State:     f.State,
+				GitHubNum: f.GitHubNum,
+			}
+			switch f.State {
+			case issue.StateTodo:
+				m.todo = append(m.todo, iss)
+			case issue.StateTestReady:
+				m.testReady = append(m.testReady, iss)
+			case issue.StateDone:
+				m.done = append(m.done, iss)
+			case issue.StateQuarantine:
+				m.quarantined = append(m.quarantined, iss)
+			}
+		}
+	} else {
+		// Fallback: load each state individually.
+		m.todo, _ = issue.List(cfg.IssueDir, issue.StateTodo)
+		m.testReady, _ = issue.List(cfg.IssueDir, issue.StateTestReady)
+		m.done, _ = issue.List(cfg.IssueDir, issue.StateDone)
+		m.quarantined, _ = issue.List(cfg.IssueDir, issue.StateQuarantine)
+	}
 	m.warnings, _ = issue.ScanUnparseable(cfg.IssueDir)
 	m.stuckTestReady, _ = issue.FindStuckTestReadyFiles(cfg.IssueDir)
 	m.invalidExecModes, _ = issue.FindInvalidExecModes(cfg.IssueDir)
