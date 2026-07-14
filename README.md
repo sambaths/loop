@@ -4,7 +4,7 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/sambaths/loop/ci.yml?branch=main)](https://github.com/sambaths/loop/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-A Go TUI that runs an AFK (away-from-keyboard) implement-then-test loop over issues, using `opencode` as the agent CLI.
+A Go TUI that runs an AFK implement-then-test loop over issues, using `opencode` as the agent CLI.
 
 This is my personal take on running AFK agent loops using the **skills shared by [Matt Pocock](https://github.com/mattpocock)** for breaking work into issues — adapted into a standalone Go binary instead of bash scripts.
 
