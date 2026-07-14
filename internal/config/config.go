@@ -20,6 +20,7 @@ type Config struct {
 	BranchOrigin     string `json:"branch_origin"`
 	AgentTimeout     int    `json:"agent_timeout"`
 	ChecksumsEnabled bool   `json:"checksums_enabled"`
+	BranchFromOrigin bool   `json:"branch_from_origin"`
 }
 
 func LoadConfig(path string) (*Config, error) {

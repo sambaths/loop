@@ -153,12 +153,24 @@ func TempBranchName(slug string) string {
 	return "loop/" + slug
 }
 
-func CreateTempBranch(name, base string) error {
+func CreateTempBranch(name, base string, fromOrigin bool) error {
 	_, _, err := RunGit("rev-parse", "--verify", "refs/heads/"+name)
 	if err == nil {
 		return SwitchBranch(name)
 	}
-	return CreateBranch(name, base)
+	if fromOrigin {
+		return CreateBranch(name, base)
+	}
+	_, stderr, err := RunGit("checkout", "-b", name, base)
+	if err != nil {
+		originBranch := "origin/" + base
+		_, fbStderr, fbErr := RunGit("checkout", "-b", name, originBranch)
+		if fbErr != nil {
+			return fmt.Errorf("create temp branch %q from %q (tried %q then %q): %s / %s: %w",
+				name, base, base, originBranch, stderr, fbStderr, fbErr)
+		}
+	}
+	return nil
 }
 
 func MergeFFOnly(src string) error {

@@ -180,7 +180,7 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 		}
 
 		// Create/switch to temp branch
-		if err := git.CreateTempBranch(tempBranch, targetBranch); err != nil {
+		if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
 			return fmt.Errorf("create temp branch: %w", err)
 		}
 
@@ -420,7 +420,7 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 		}
 
 		// Create/switch to temp branch
-		if err := git.CreateTempBranch(tempBranch, targetBranch); err != nil {
+		if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
 			return fmt.Errorf("create temp branch: %w", err)
 		}
 
