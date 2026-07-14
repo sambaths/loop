@@ -52,7 +52,10 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
 		commitMsg := result.CommitMsg
-		if commitMsg == "" || strings.Contains(commitMsg, "<type>") || strings.Contains(commitMsg, "<short summary>") {
+		if commitMsg == "" ||
+			strings.Contains(commitMsg, "<type>") ||
+			strings.Contains(commitMsg, "<short summary>") ||
+			strings.Contains(commitMsg, "login form") {
 			commitType := inferCommitType(issueFile)
 			commitMsg = fmt.Sprintf("%s: %s", commitType, issueFile.Title)
 		}
@@ -96,7 +99,10 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
 		commitMsg := result.CommitMsg
-		if commitMsg == "" || strings.Contains(commitMsg, "<type>") || strings.Contains(commitMsg, "<short summary>") {
+		if commitMsg == "" ||
+			strings.Contains(commitMsg, "<type>") ||
+			strings.Contains(commitMsg, "<short summary>") ||
+			strings.Contains(commitMsg, "login form") {
 			commitType := inferCommitType(issueFile)
 			commitMsg = fmt.Sprintf("%s: %s", commitType, issueFile.Title)
 		}
