@@ -815,21 +815,20 @@ var (
 	ErrIssueNonAFK      = fmt.Errorf("issue execution mode does not allow autonomous implementation")
 )
 
-func isBlockerResolved(ref string, doneBases []string) bool {
-	ref = strings.TrimSpace(ref)
-	ref = strings.TrimSuffix(ref, ".md")
-	parts := strings.Fields(ref)
-	for _, p := range parts {
-		p = strings.TrimLeft(p, "#( ")
-		if p == "" {
-			continue
-		}
-		if _, err := strconv.Atoi(p); err == nil {
-			for _, db := range doneBases {
-				if strings.HasPrefix(db, p) {
-					return true
-				}
-			}
+func isBlockerResolved(ref string, doneBases []string, ghNums map[int]bool) bool {
+	num, ok := extractBlockerNum(ref)
+	if !ok {
+		return true
+	}
+	// Check if any done file has this GitHub number
+	if ghNums != nil && ghNums[num] {
+		return true
+	}
+	// Fallback: check done file basename prefix
+	strNum := strconv.Itoa(num)
+	for _, db := range doneBases {
+		if strings.HasPrefix(db, strNum) {
+			return true
 		}
 	}
 	return false
@@ -941,9 +940,9 @@ func doneBasenames(doneFiles []string) []string {
 	return bases
 }
 
-func allBlockersResolved(blockers []string, doneBases []string) bool {
+func allBlockersResolved(blockers []string, doneBases []string, ghNums map[int]bool) bool {
 	for _, b := range blockers {
-		if !isBlockerResolved(b, doneBases) {
+		if !isBlockerResolved(b, doneBases, ghNums) {
 			return false
 		}
 	}
@@ -958,6 +957,17 @@ func allBlockersResolved(blockers []string, doneBases []string) bool {
 // autonomous implementation (role = implement; see ExecModeAllowsImplement).
 func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err error) {
 	dones := doneBasenames(state.DoneFiles)
+	ghNums := make(map[int]bool)
+	allPaths := append([]string{}, state.DoneFiles...)
+	allPaths = append(allPaths, state.TodoFiles...)
+	allPaths = append(allPaths, state.TestReadyFiles...)
+	allPaths = append(allPaths, state.ReadyForAgentFiles...)
+	allPaths = append(allPaths, state.QuarantineFiles...)
+	for _, p := range allPaths {
+		if f, err := getCachedIssueFile(state, p); err == nil && f.GitHubNum > 0 {
+			ghNums[f.GitHubNum] = true
+		}
+	}
 
 	// Priority 1: exhaust all unblocked test-ready items first.
 	// Skip files that already have populated UAT Results — they were tested
@@ -975,7 +985,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 			continue
 		}
 		blockers := ParseBlockedBy(string(data))
-		if len(blockers) > 0 && !allBlockersResolved(blockers, dones) {
+		if len(blockers) > 0 && !allBlockersResolved(blockers, dones, ghNums) {
 			continue
 		}
 		return issueFile, RoleTest, nil
@@ -997,7 +1007,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 			return nil, "", fmt.Errorf("read ready-for-agent file: %w", err)
 		}
 		blockers := ParseBlockedBy(string(data))
-		if len(blockers) > 0 && !allBlockersResolved(blockers, dones) {
+		if len(blockers) > 0 && !allBlockersResolved(blockers, dones, ghNums) {
 			continue
 		}
 		return issueFile, RoleImplement, nil
@@ -1017,7 +1027,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 			return nil, "", fmt.Errorf("read todo file: %w", err)
 		}
 		blockers := ParseBlockedBy(string(data))
-		if len(blockers) > 0 && !allBlockersResolved(blockers, dones) {
+		if len(blockers) > 0 && !allBlockersResolved(blockers, dones, ghNums) {
 			continue
 		}
 		return issueFile, RoleImplement, nil
@@ -1038,7 +1048,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 			return nil, "", fmt.Errorf("read ready-for-agent file: %w", err)
 		}
 		blockers := ParseBlockedBy(string(data))
-		if len(blockers) > 0 && !allBlockersResolved(blockers, dones) {
+		if len(blockers) > 0 && !allBlockersResolved(blockers, dones, ghNums) {
 			continue
 		}
 		return issueFile, RoleImplement, nil
@@ -1056,7 +1066,7 @@ func SelectIssue(state *PipelineState) (selected *IssueFile, role Role, err erro
 			return nil, "", fmt.Errorf("read todo file: %w", err)
 		}
 		blockers := ParseBlockedBy(string(data))
-		if len(blockers) > 0 && !allBlockersResolved(blockers, dones) {
+		if len(blockers) > 0 && !allBlockersResolved(blockers, dones, ghNums) {
 			continue
 		}
 		return issueFile, RoleImplement, nil

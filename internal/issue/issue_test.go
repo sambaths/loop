@@ -1644,7 +1644,7 @@ func TestSelectIssueBlockerResolved(t *testing.T) {
 	doneDir := filepath.Join(dir, "done")
 	os.MkdirAll(doneDir, 0755)
 	donePath := filepath.Join(doneDir, "02-status-pipeline.md")
-	os.WriteFile(donePath, []byte("# 02 — Status pipeline\n\nBody"), 0644)
+	os.WriteFile(donePath, []byte("# 02 — Status pipeline\n\nGitHub: #2\n\nBody"), 0644)
 
 	todoPath := filepath.Join(dir, "todo.md")
 	content := "# 03 — Core iteration\n\nExecution mode: AFK-only\n\n## Blocked by\n\n- 02 — Status pipeline\n"
@@ -3803,48 +3803,54 @@ func TestIsBlockerResolved(t *testing.T) {
 		name      string
 		ref       string
 		doneBases []string
+		ghNums    map[int]bool
 		want      bool
 	}{
-		{"number prefix match", "42", []string{"42-feature", "43-bugfix"}, true},
-		{"number with description", "42 — Feature name", []string{"42-feature"}, true},
-		{"with md extension", "42.md", []string{"42"}, true},
-		{"hash prefix now parses correctly", "#42", []string{"42-feature"}, true},
-		{"unresolved number", "99 — Missing", []string{"42-feature"}, false},
-		{"no number in ref", "text without number", []string{"42-feature"}, false},
-		{"empty ref", "", []string{"42-feature"}, false},
-		{"number not starting match", "42", []string{"142-other"}, false},
-		{"empty done bases", "42", []string{}, false},
+		{"number prefix match", "42", []string{"42-feature", "43-bugfix"}, nil, true},
+		{"number with description", "42 — Feature name", []string{"42-feature"}, nil, true},
+		{"with md extension", "42.md", []string{"42"}, nil, true},
+		{"hash prefix now parses correctly", "#42", []string{"42-feature"}, nil, true},
+		{"unresolved number", "99 — Missing", []string{"42-feature"}, nil, false},
+		{"no number in ref", "text without number", []string{"42-feature"}, nil, true},
+		{"empty ref", "", []string{"42-feature"}, nil, true},
+		{"number not starting match", "42", []string{"142-other"}, nil, false},
+		{"empty done bases", "42", []string{}, nil, false},
+		{"gh num match", "#128", nil, map[int]bool{128: true, 42: true}, true},
+		{"gh num no match", "#99", nil, map[int]bool{128: true, 42: true}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isBlockerResolved(tc.ref, tc.doneBases)
+			got := isBlockerResolved(tc.ref, tc.doneBases, tc.ghNums)
 			if got != tc.want {
-				t.Errorf("isBlockerResolved(%q, %v) = %v, want %v", tc.ref, tc.doneBases, got, tc.want)
+				t.Errorf("isBlockerResolved(%q, %v, %v) = %v, want %v", tc.ref, tc.doneBases, tc.ghNums, got, tc.want)
 			}
 		})
 	}
 }
 
 func TestAllBlockersResolved(t *testing.T) {
-	doneBases := []string{"01-done", "02-done", "03-done"}
+	doneBases := []string{"10-done", "20-done", "30-done"}
 	tests := []struct {
 		name     string
 		blockers []string
+		ghNums   map[int]bool
 		want     bool
 	}{
-		{"all resolved", []string{"01", "02"}, true},
-		{"single resolved", []string{"03"}, true},
-		{"empty blockers", []string{}, true},
-		{"nil blockers", nil, true},
-		{"one unresolved", []string{"01", "99"}, false},
-		{"all unresolved", []string{"99", "100"}, false},
-		{"mix resolved and unresolved", []string{"02", "99", "03"}, false},
+		{"all resolved", []string{"10", "20"}, nil, true},
+		{"single resolved", []string{"30"}, nil, true},
+		{"empty blockers", []string{}, nil, true},
+		{"nil blockers", nil, nil, true},
+		{"one unresolved", []string{"10", "99"}, nil, false},
+		{"all unresolved", []string{"99", "100"}, nil, false},
+		{"mix resolved and unresolved", []string{"20", "99", "30"}, nil, false},
+		{"gh num resolved", []string{"#128"}, map[int]bool{128: true}, true},
+		{"gh num unresolved", []string{"#99"}, map[int]bool{128: true}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := allBlockersResolved(tc.blockers, doneBases)
+			got := allBlockersResolved(tc.blockers, doneBases, tc.ghNums)
 			if got != tc.want {
-				t.Errorf("allBlockersResolved(%v, %v) = %v, want %v", tc.blockers, doneBases, got, tc.want)
+				t.Errorf("allBlockersResolved(%v, %v, %v) = %v, want %v", tc.blockers, doneBases, tc.ghNums, got, tc.want)
 			}
 		})
 	}
