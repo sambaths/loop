@@ -131,9 +131,9 @@ func CommitDetailed(subject, body string) error {
 	if body != "" {
 		args = append(args, "-m", body)
 	}
-	_, stderr, err = RunGit(args...)
+	stdout, stderr, err := RunGit(args...)
 	if err != nil {
-		if strings.Contains(stderr, "nothing to commit") {
+		if strings.Contains(stderr, "nothing to commit") || strings.Contains(stdout, "nothing to commit") {
 			return nil
 		}
 		return fmt.Errorf("git commit: %s: %w", stderr, err)
