@@ -2243,8 +2243,8 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 		base := strings.TrimSuffix(filepath.Base(p), ".md")
 		parts := strings.SplitN(base, "-", 2)
 		if len(parts) > 0 {
-			if _, err := strconv.Atoi(parts[0]); err == nil {
-				allBasenamePrefixes[parts[0]] = true
+			if n, err := strconv.Atoi(parts[0]); err == nil {
+				allBasenamePrefixes[strconv.Itoa(n)] = true
 			}
 		}
 	}
