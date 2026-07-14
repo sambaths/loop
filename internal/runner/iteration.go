@@ -51,20 +51,12 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 	}
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
-		commitType := inferCommitType(issueFile)
-		subject := fmt.Sprintf("%s: %s", commitType, issueFile.Title)
-		var bodyBuilder strings.Builder
-		if sections, secErr := issue.ParseIssueSections(string(content)); secErr == nil {
-			if wb, ok := sections["what to build"]; ok && wb != "" {
-				para := strings.SplitN(wb, "\n\n", 2)[0]
-				bodyBuilder.WriteString(strings.TrimSpace(para))
-			}
+		commitMsg := result.CommitMsg
+		if commitMsg == "" {
+			commitType := inferCommitType(issueFile)
+			commitMsg = fmt.Sprintf("%s: %s", commitType, issueFile.Title)
 		}
-		if stat, statErr := git.DiffStat(); statErr == nil && stat != "" {
-			bodyBuilder.WriteString("\n\nChanged files:\n")
-			bodyBuilder.WriteString(stat)
-		}
-		if err := git.CommitDetailed(subject, bodyBuilder.String()); err != nil {
+		if err := git.CommitRaw(commitMsg); err != nil {
 			return "", fmt.Errorf("commit changes: %w", err)
 		}
 	}
@@ -103,20 +95,12 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 	}
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
-		commitType := inferCommitType(issueFile)
-		subject := fmt.Sprintf("%s: %s", commitType, issueFile.Title)
-		var bodyBuilder strings.Builder
-		if sections, secErr := issue.ParseIssueSections(string(content)); secErr == nil {
-			if wb, ok := sections["what to build"]; ok && wb != "" {
-				para := strings.SplitN(wb, "\n\n", 2)[0]
-				bodyBuilder.WriteString(strings.TrimSpace(para))
-			}
+		commitMsg := result.CommitMsg
+		if commitMsg == "" {
+			commitType := inferCommitType(issueFile)
+			commitMsg = fmt.Sprintf("%s: %s", commitType, issueFile.Title)
 		}
-		if stat, statErr := git.DiffStat(); statErr == nil && stat != "" {
-			bodyBuilder.WriteString("\n\nChanged files:\n")
-			bodyBuilder.WriteString(stat)
-		}
-		if err := git.CommitDetailed(subject, bodyBuilder.String()); err != nil {
+		if err := git.CommitRaw(commitMsg); err != nil {
 			return "", fmt.Errorf("commit changes: %w", err)
 		}
 	}

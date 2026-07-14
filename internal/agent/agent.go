@@ -43,9 +43,11 @@ func HasOpencode() bool {
 }
 
 var (
-	maxOutputSize  = 1 * 1024 * 1024 // 1 MB max stdout for promise parsing
-	sentinelStart = "__LOOP_RESULT__"
-	sentinelEnd   = "__LOOP_RESULT_END__"
+	maxOutputSize       = 1 * 1024 * 1024 // 1 MB max stdout for promise parsing
+	sentinelStart       = "__LOOP_RESULT__"
+	sentinelEnd         = "__LOOP_RESULT_END__"
+	commitSentinelStart = "__LOOP_COMMIT__"
+	commitSentinelEnd   = "__LOOP_COMMIT_END__"
 )
 
 // MaxOutputSize returns the maximum number of bytes of agent output to buffer
@@ -60,6 +62,7 @@ type Result struct {
 	Stderr    bytes.Buffer // stderr only (for logging)
 	Err       error
 	Truncated bool // true if stdout exceeded MaxOutputSize (parsed last N bytes)
+	CommitMsg string // commit message extracted from __LOOP_COMMIT__ sentinels
 }
 
 // runContent runs opencode with the given content piped via stdin.
@@ -119,14 +122,16 @@ func runContent(ctx context.Context, content string, dir string, timeout time.Du
 	combinedBuf.Write(stdoutBuf.Bytes())
 	combinedBuf.Write(stderrBuf.Bytes())
 
-	return &Result{
+	result := &Result{
 		Outcome:   outcome,
 		Output:    combinedBuf,
 		Stdout:    stdoutBuf,
 		Stderr:    stderrBuf,
 		Err:       runErr,
 		Truncated: truncated,
-	}, nil
+	}
+	result.CommitMsg = ParseCommitMessage(stdoutBuf.String())
+	return result, nil
 }
 
 // execCommand is overridable for testing.
@@ -252,14 +257,16 @@ func runContentStreamed(ctx context.Context, content string, dir string, timeout
 	combinedBuf.Write(stdoutBuf.Bytes())
 	combinedBuf.Write(stderrBuf.Bytes())
 
-	return &Result{
+	result := &Result{
 		Outcome:   outcome,
 		Output:    combinedBuf,
 		Stdout:    stdoutBuf,
 		Stderr:    stderrBuf,
 		Err:       runErr,
 		Truncated: truncated,
-	}, nil
+	}
+	result.CommitMsg = ParseCommitMessage(stdoutBuf.String())
+	return result, nil
 }
 
 // ParsePromises extracts the last valid promise marker from agent output.
@@ -306,4 +313,20 @@ func ParseOutput(output string) (Outcome, bool) {
 	default:
 		return "", false
 	}
+}
+
+// ParseCommitMessage extracts a commit message from between __LOOP_COMMIT__ sentinels.
+// Returns empty string if not found.
+func ParseCommitMessage(output string) string {
+	startIdx := strings.LastIndex(output, commitSentinelStart)
+	if startIdx == -1 {
+		return ""
+	}
+	remainder := output[startIdx+len(commitSentinelStart):]
+	endIdx := strings.Index(remainder, commitSentinelEnd)
+	if endIdx == -1 {
+		return ""
+	}
+	msg := strings.TrimSpace(remainder[:endIdx])
+	return msg
 }

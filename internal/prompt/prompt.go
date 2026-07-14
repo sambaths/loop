@@ -105,6 +105,27 @@ Use /tdd to implement the task.
 
 Before outputting COMPLETE, add a ` + "`" + `## Test Results` + "`" + ` section to the local issue file summarizing what was implemented and test outcomes.
 
+## Commit message
+
+Before outputting COMPLETE, include a commit message describing your
+changes wrapped in sentinel lines:
+
+` + "```" + `
+__LOOP_COMMIT__
+<type>: <short summary>
+
+<detailed description of what changed and why>
+
+Changed files:
+ <file1> | <changes>
+ <file2> | <changes>
+__LOOP_COMMIT_END__
+` + "```" + `
+
+The type should be one of: feat, fix, bug, enhancement, chore, test, docs.
+The body should explain WHY the change was made, not just what changed.
+Include a "Changed files:" section at the end listing each modified file.
+
 ## Bidirectional sync (GitHub only)
 
 If the issue has a ` + "`" + `GitHub: #NN` + "`" + ` header:

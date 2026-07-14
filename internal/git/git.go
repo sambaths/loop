@@ -141,6 +141,24 @@ func CommitDetailed(subject, body string) error {
 	return nil
 }
 
+// CommitRaw stages all changes and commits with the given message.
+// The message is passed as a single -m argument to git commit, so
+// the first line becomes the subject and subsequent lines the body.
+func CommitRaw(msg string) error {
+	_, stderr, err := RunGit("add", "-A")
+	if err != nil {
+		return fmt.Errorf("git add: %s: %w", stderr, err)
+	}
+	_, stderr, err = RunGit("commit", "-m", msg)
+	if err != nil {
+		if strings.Contains(stderr, "nothing to commit") {
+			return nil
+		}
+		return fmt.Errorf("git commit: %s: %w", stderr, err)
+	}
+	return nil
+}
+
 func DiffStat() (string, error) {
 	stdout, stderr, err := RunGit("diff", "--stat", "--cached")
 	if err != nil {
