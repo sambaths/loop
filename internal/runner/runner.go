@@ -217,7 +217,7 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 				if err := git.SwitchBranch(targetBranch); err != nil {
 					lineFn(fmt.Sprintf("--- warning: failed to switch to %s for merge: %v ---", targetBranch, err))
 				} else {
-					if err := git.MergeFFOnly(tempBranch); err != nil {
+					if err := git.MergeBranch(tempBranch); err != nil {
 						lineFn(fmt.Sprintf("--- warning: failed to merge %s into %s: %v ---", tempBranch, targetBranch, err))
 					} else {
 						if err := git.DeleteBranch(tempBranch); err != nil {
@@ -471,7 +471,7 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 				if err := git.SwitchBranch(targetBranch); err != nil {
 					fmt.Fprintf(os.Stderr, "--- warning: failed to switch to %s for merge: %v ---\n", targetBranch, err)
 				} else {
-					if err := git.MergeFFOnly(tempBranch); err != nil {
+					if err := git.MergeBranch(tempBranch); err != nil {
 						fmt.Fprintf(os.Stderr, "--- warning: failed to merge %s into %s: %v ---\n", tempBranch, targetBranch, err)
 					} else {
 						if err := git.DeleteBranch(tempBranch); err != nil {

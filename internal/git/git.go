@@ -191,12 +191,20 @@ func CreateTempBranch(name, base string, fromOrigin bool) error {
 	return nil
 }
 
-func MergeFFOnly(src string) error {
+func MergeBranch(src string) error {
 	_, stderr, err := RunGit("merge", "--ff-only", src)
-	if err != nil {
-		return fmt.Errorf("merge --ff-only %s: %s: %w", src, stderr, err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	ffErr := fmt.Errorf("merge --ff-only %s: %s: %w", src, stderr, err)
+
+	_, stderr, err = RunGit("merge", "--no-edit", src)
+	if err == nil {
+		return nil
+	}
+	noEditErr := fmt.Errorf("merge --no-edit %s: %s: %w", src, stderr, err)
+
+	return fmt.Errorf("fallback merge failed: [ff-only] %w; [no-edit] %w", ffErr, noEditErr)
 }
 
 func DeleteBranch(name string) error {
