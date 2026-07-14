@@ -180,7 +180,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			vpHeight = 1
 		}
 		for i := range m.viewports {
-			m.viewports[i].Width = msg.Width
+			m.viewports[i].Width = msg.Width - 1
 			m.viewports[i].Height = vpHeight
 		}
 		return m, nil
@@ -222,7 +222,7 @@ func (m Model) View() string {
 		return ""
 	}
 	s := m.headerView() + "\n\n"
-	s += m.viewports[m.page].View() + "\n"
+	s += m.pageView() + "\n"
 	if m.screenshotSaved != "" {
 		s += savedOkStyle.Render(m.screenshotSaved) + "\n"
 	}
@@ -231,8 +231,31 @@ func (m Model) View() string {
 }
 
 func (m Model) pageView() string {
-	return m.viewports[m.page].View()
+	vp := m.viewports[m.page]
+	content := vp.View()
+	if vp.TotalLineCount() <= vp.Height {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	perc := vp.ScrollPercent()
+	thumb := int(math.Round(perc * float64(len(lines)-1)))
+	for i := range lines {
+		if i == thumb {
+			lines[i] += scrollThumb
+		} else {
+			lines[i] += scrollTrack
+		}
+	}
+	return strings.Join(lines, "\n")
 }
+
+const (
+	scrollTrack = "│"
+	scrollThumb = "▓"
+)
 
 func (m Model) overviewView() string {
 	s := "Pipeline overview\n\n"
