@@ -112,9 +112,9 @@ func CommitAll(msg string) error {
 	if err != nil {
 		return fmt.Errorf("git add: %s: %w", stderr, err)
 	}
-	_, stderr, err = RunGit("commit", "-m", msg)
+	stdout, stderr, err := RunGit("commit", "-m", msg)
 	if err != nil {
-		if strings.Contains(stderr, "nothing to commit") {
+		if strings.Contains(stderr, "nothing to commit") || strings.Contains(stdout, "nothing to commit") {
 			return nil
 		}
 		return fmt.Errorf("git commit: %s: %w", stderr, err)
