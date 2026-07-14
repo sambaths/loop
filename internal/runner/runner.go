@@ -179,6 +179,22 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 			return fmt.Errorf("get current branch: %w", branchErr)
 		}
 
+		// Ensure we always switch back and restore stash, even on error/crash
+		defer func() {
+			if err := git.SwitchBranch(origBranch); err != nil {
+				lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
+			}
+			if stashed {
+				if applyErr := git.StashApply(); applyErr != nil {
+					lineFn(fmt.Sprintf("--- warning: could not restore stash: %v (stash preserved) ---", applyErr))
+				} else {
+					if dropErr := git.StashDrop(); dropErr != nil {
+						lineFn(fmt.Sprintf("--- warning: stash drop failed: %v ---", dropErr))
+					}
+				}
+			}
+		}()
+
 		// Create/switch to temp branch
 		if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
 			return fmt.Errorf("create temp branch: %w", err)
@@ -187,20 +203,6 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 		promise, err := RunIterationStreamed(ctx, cfg, selectedFile, role, lineFn)
 		if err != nil {
 			return fmt.Errorf("iteration %d: %w", i+1, err)
-		}
-
-		// Switch back and restore user's working tree
-		if err := git.SwitchBranch(origBranch); err != nil {
-			lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
-		}
-		if stashed {
-			if applyErr := git.StashApply(); applyErr != nil {
-				lineFn(fmt.Sprintf("--- warning: could not restore stash: %v (stash preserved) ---", applyErr))
-			} else {
-				if dropErr := git.StashDrop(); dropErr != nil {
-					lineFn(fmt.Sprintf("--- warning: stash drop failed: %v ---", dropErr))
-				}
-			}
 		}
 
 		// On test pass, merge temp branch into target and delete it
@@ -419,6 +421,22 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 			return fmt.Errorf("get current branch: %w", branchErr)
 		}
 
+		// Ensure we always switch back and restore stash, even on error/crash
+		defer func() {
+			if err := git.SwitchBranch(origBranch); err != nil {
+				fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
+			}
+			if stashed {
+				if applyErr := git.StashApply(); applyErr != nil {
+					fmt.Fprintf(os.Stderr, "--- warning: could not restore stash: %v (stash preserved) ---\n", applyErr)
+				} else {
+					if dropErr := git.StashDrop(); dropErr != nil {
+						fmt.Fprintf(os.Stderr, "--- warning: stash drop failed: %v ---\n", dropErr)
+					}
+				}
+			}
+		}()
+
 		// Create/switch to temp branch
 		if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
 			return fmt.Errorf("create temp branch: %w", err)
@@ -427,20 +445,6 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 		promise, err := RunIterationContext(ctx, cfg, selectedFile, role)
 		if err != nil {
 			return fmt.Errorf("iteration %d: %w", i+1, err)
-		}
-
-		// Switch back and restore user's working tree
-		if err := git.SwitchBranch(origBranch); err != nil {
-			fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
-		}
-		if stashed {
-			if applyErr := git.StashApply(); applyErr != nil {
-				fmt.Fprintf(os.Stderr, "--- warning: could not restore stash: %v (stash preserved) ---\n", applyErr)
-			} else {
-				if dropErr := git.StashDrop(); dropErr != nil {
-					fmt.Fprintf(os.Stderr, "--- warning: stash drop failed: %v ---\n", dropErr)
-				}
-			}
 		}
 
 		// On test pass, merge temp branch into target and delete it

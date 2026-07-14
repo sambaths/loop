@@ -2242,10 +2242,6 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	}
 	allBasenamePrefixes := make(map[string]bool)
 	for _, p := range allPaths {
-		st := StateFromPath(p)
-		if st == StateDone || st == StateQuarantine || st == StateUnable {
-			continue
-		}
 		base := strings.TrimSuffix(filepath.Base(p), ".md")
 		parts := strings.SplitN(base, "-", 2)
 		if len(parts) > 0 {
