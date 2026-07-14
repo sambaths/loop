@@ -108,7 +108,7 @@ Loop handles branch switching, agent invocation, file transitions, and GitHub sy
 | `loop check`                   | Validate pipeline: duplicates, missing fields, checksum mismatches    |
 | `loop repair`                  | Repair pipeline: missing labels, stuck files, GitHub label drift      |
 | `loop restore`                 | Restore git context (branch + stash) after an interrupted run         |
-| `loop download`                | Download latest release from GitHub                                  |
+| `loop upgrade`                | Upgrade loop to the latest release                                   |
 | `loop checksum verify`         | Verify issue file checksums against the `Checksum:` header            |
 | `loop completion`              | Print bash completion script                                          |
 | `loop --version` / `--help`    | Show version / help                                                   |

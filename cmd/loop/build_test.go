@@ -405,7 +405,7 @@ func TestMakefileCompletionsTarget(t *testing.T) {
 	if !strings.Contains(completionContent, "complete -F") {
 		t.Error("completion script should contain the complete directive")
 	}
-	if !strings.Contains(completionContent, "setup run status check repair restore download checksum screenshot completion commands") {
+	if !strings.Contains(completionContent, "setup run status check repair restore upgrade checksum screenshot completion commands") {
 		t.Error("completion script should contain the command list")
 	}
 

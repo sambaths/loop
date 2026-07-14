@@ -1,12 +1,17 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -38,7 +43,7 @@ var runStatusFn = runStatus
 var runCheckFn = runCheck
 var runRestoreFn = runRestore
 var runRepairFn = runRepair
-var runDownloadFn = runDownload
+var runUpgradeFn = runUpgrade
 var runChecksumVerifyFn = runChecksumVerify
 var runCommandsFn = runCommands
 var runScreenshotFn = runScreenshot
@@ -56,7 +61,7 @@ Commands:
   repair             Repair pipeline: strip empty UAT Results, promote stuck files, fix GitHub labels
   restore            Restore git context (original branch + pop stash) if loop was interrupted
   screenshot         Save a terminal screenshot of the pipeline state
-  download           Download the latest release from GitHub
+  upgrade            Upgrade loop to the latest release
   checksum verify    Verify file content checksums
   completion bash    Print bash completion script
   commands           Show a table of all available commands
@@ -81,7 +86,7 @@ const (
 	cmdCheck
 	cmdRepair
 	cmdRestore
-	cmdDownload
+	cmdUpgrade
 	cmdCompletion
 	cmdChecksum
 	cmdCommands
@@ -156,8 +161,8 @@ func parseArgs(args []string) (command, int) {
 			return cmdCheck, 0
 		case "restore":
 			return cmdRestore, 0
-		case "download":
-			return cmdDownload, 0
+		case "upgrade":
+			return cmdUpgrade, 0
 		case "repair":
 			return cmdRepair, 0
 		case "checksum":
@@ -546,34 +551,114 @@ func runChecksumVerify() {
 	}
 }
 
-func runDownload() {
+func runUpgrade() {
 	_, exists, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
 		osExit(1)
 		return
 	}
-
 	if !exists {
 		fmt.Fprintln(os.Stderr, "Not configured — run 'loop setup' first")
 		osExit(1)
 		return
 	}
 
-	destDir := "."
+	// Get current binary path
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting executable path: %v\n", err)
+		osExit(1)
+		return
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving executable symlink: %v\n", err)
+		osExit(1)
+		return
+	}
+
+	// Download to temp dir
+	tmpDir, err := os.MkdirTemp("", "loop-upgrade")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating temp directory: %v\n", err)
+		osExit(1)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
 
 	fmt.Fprintf(os.Stderr, "==> Downloading latest loop release ...\n")
-	files, err := github.DownloadLatestAsset("sambaths", "loop", destDir)
+	files, err := github.DownloadLatestAsset("sambaths", "loop", tmpDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error downloading release: %v\n", err)
 		osExit(1)
 		return
 	}
-
-	for _, f := range files {
-		fmt.Println(f)
+	if len(files) == 0 {
+		fmt.Fprintln(os.Stderr, "No release files downloaded")
+		osExit(1)
+		return
 	}
-	fmt.Fprintf(os.Stderr, "==> Downloaded %d file(s) to %s\n", len(files), destDir)
+
+	archive := filepath.Join(tmpDir, files[0])
+	extractDir := filepath.Join(tmpDir, "extracted")
+	if err := os.MkdirAll(extractDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating extract dir: %v\n", err)
+		osExit(1)
+		return
+	}
+
+	// Extract the archive
+	if strings.HasSuffix(archive, ".zip") {
+		if err := extractZip(archive, extractDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error extracting archive: %v\n", err)
+			osExit(1)
+			return
+		}
+	} else {
+		if err := extractTarGz(archive, extractDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error extracting archive: %v\n", err)
+			osExit(1)
+			return
+		}
+	}
+
+	// Find the extracted binary
+	newBinary := filepath.Join(extractDir, "loop")
+	if runtime.GOOS == "windows" {
+		newBinary += ".exe"
+	}
+	if _, err := os.Stat(newBinary); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: extracted binary not found at %s\n", newBinary)
+		osExit(1)
+		return
+	}
+
+	// Backup old binary
+	backupPath := exe + ".bak"
+	if err := os.Rename(exe, backupPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error backing up current binary: %v\n", err)
+		osExit(1)
+		return
+	}
+
+	// Copy new binary to original location
+	if err := copyFile(newBinary, exe); err != nil {
+		// Restore backup
+		os.Rename(backupPath, exe)
+		fmt.Fprintf(os.Stderr, "Error installing update: %v\n", err)
+		osExit(1)
+		return
+	}
+
+	if err := os.Chmod(exe, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not set executable permissions: %v\n", err)
+	}
+
+	// Remove backup
+	os.Remove(backupPath)
+
+	fmt.Fprintf(os.Stderr, "==> Successfully upgraded loop\n")
 }
 
 func runRestore() {
@@ -658,7 +743,7 @@ func runCommands() {
   loop check                Validate pipeline state for issues
   loop repair               Repair pipeline: strip empty UAT Results, promote stuck files, fix GitHub labels
   loop restore              Restore git context (original branch + pop stash) if loop was interrupted
-  loop download             Download the latest release from GitHub
+  loop upgrade             Upgrade loop to the latest release
   loop checksum verify      Verify file content checksums
   loop screenshot           Save a terminal screenshot of the pipeline state
    loop completion bash      Print bash completion script
@@ -679,7 +764,7 @@ func printBashCompletion() {
 	_get_comp_words_by_ref -n : cur prev words cword
 
 	if [[ $cword -eq 1 ]]; then
-		COMPREPLY=($(compgen -W "help setup run status check repair restore download checksum screenshot completion commands --help -h --version --timeout --repair --headless" -- "${cur}"))
+		COMPREPLY=($(compgen -W "help setup run status check repair restore upgrade checksum screenshot completion commands --help -h --version --timeout --repair --headless" -- "${cur}"))
 		return 0
 	fi
 
@@ -704,7 +789,7 @@ func printBashCompletion() {
 			if [[ ${cur} == -* ]]; then
 				COMPREPLY=($(compgen -W "--help -h --version --timeout --repair --headless" -- "${cur}"))
 			else
-				COMPREPLY=($(compgen -W "help setup run status check repair restore download checksum screenshot completion commands" -- "${cur}"))
+				COMPREPLY=($(compgen -W "help setup run status check repair restore upgrade checksum screenshot completion commands" -- "${cur}"))
 			fi
 			return 0
 			;;
@@ -738,9 +823,9 @@ func main() {
 	case cmdRepair:
 		requireConfig()
 		runRepairFn()
-	case cmdDownload:
+	case cmdUpgrade:
 		requireConfig()
-		runDownloadFn()
+		runUpgradeFn()
 	case cmdChecksum:
 		requireConfig()
 		runChecksumVerifyFn()
@@ -761,4 +846,108 @@ func main() {
 		cfg, _, _ := config.Load()
 		runTUIFn(cfg)
 	}
+}
+
+func extractTarGz(src, dest string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, header.Name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			out.Close()
+		}
+	}
+	return nil
+}
+
+func extractZip(src, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		target := filepath.Join(dest, f.Name)
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, f.Mode())
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		if _, err := io.Copy(out, rc); err != nil {
+			out.Close()
+			rc.Close()
+			return err
+		}
+		out.Close()
+		rc.Close()
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	if err != nil {
+		return err
+	}
+	return out.Close()
 }

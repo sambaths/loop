@@ -2324,17 +2324,17 @@ exit 1
 	}
 }
 
-func TestParseArgsDownloadSubcommand(t *testing.T) {
-	cmd, code := parseArgs([]string{"download"})
-	if cmd != cmdDownload {
-		t.Errorf("expected cmdDownload, got %d", cmd)
+func TestParseArgsUpgradeSubcommand(t *testing.T) {
+	cmd, code := parseArgs([]string{"upgrade"})
+	if cmd != cmdUpgrade {
+		t.Errorf("expected cmdUpgrade, got %d", cmd)
 	}
 	if code != 0 {
 		t.Errorf("expected exit code 0, got %d", code)
 	}
 }
 
-func TestMainCommandDownload(t *testing.T) {
+func TestMainCommandUpgrade(t *testing.T) {
 	dir := t.TempDir()
 	testhelper.InitRepo(t, dir)
 	origWd, _ := os.Getwd()
@@ -2347,22 +2347,22 @@ func TestMainCommandDownload(t *testing.T) {
 	}
 
 	oldArgs := os.Args
-	os.Args = []string{"loop", "download"}
+	os.Args = []string{"loop", "upgrade"}
 	defer func() { os.Args = oldArgs }()
 
 	called := false
-	origDownload := runDownloadFn
-	runDownloadFn = func() { called = true }
-	defer func() { runDownloadFn = origDownload }()
+	origUpgrade := runUpgradeFn
+	runUpgradeFn = func() { called = true }
+	defer func() { runUpgradeFn = origUpgrade }()
 
 	main()
 
 	if !called {
-		t.Error("expected runDownloadFn to be called for 'loop download'")
+		t.Error("expected runUpgradeFn to be called for 'loop upgrade'")
 	}
 }
 
-func TestMainCommandDownloadNoConfig(t *testing.T) {
+func TestMainCommandUpgradeNoConfig(t *testing.T) {
 	dir := t.TempDir()
 	origWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -2373,14 +2373,14 @@ func TestMainCommandDownloadNoConfig(t *testing.T) {
 	osExit = func(code int) { exited = true }
 	defer func() { osExit = origExit }()
 
-	runDownload()
+	runUpgrade()
 
 	if !exited {
 		t.Error("expected osExit for missing config")
 	}
 }
 
-func TestMainCommandDownloadNoRepo(t *testing.T) {
+func TestMainCommandUpgradeNoRepo(t *testing.T) {
 	dir := t.TempDir()
 	testhelper.InitRepo(t, dir)
 	origWd, _ := os.Getwd()
@@ -2402,7 +2402,7 @@ func TestMainCommandDownloadNoRepo(t *testing.T) {
 	os.Stderr = w
 	defer func() { os.Stderr = old }()
 
-	runDownload()
+	runUpgrade()
 
 	w.Close()
 	var buf strings.Builder
@@ -2411,7 +2411,7 @@ func TestMainCommandDownloadNoRepo(t *testing.T) {
 
 	// Should NOT mention repo config — that check was removed.
 	if strings.Contains(output, "No GitHub repo configured") {
-		t.Error("unexpected 'No GitHub repo configured' error — download no longer requires a repo")
+		t.Error("unexpected 'No GitHub repo configured' error — upgrade no longer requires a repo")
 	}
 	// Should at least attempt the download.
 	if !strings.Contains(output, "Downloading latest loop release") {
