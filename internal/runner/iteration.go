@@ -25,21 +25,6 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 		return agent.NoMoreTasks, nil
 	}
 
-	restore, err := git.SaveContext()
-	if err != nil {
-		return "", fmt.Errorf("save git context: %w", err)
-	}
-	defer restore()
-
-	branchOrigin := cfg.BranchOrigin
-	if branchOrigin == "" {
-		branchOrigin = config.DefaultBranchOrigin
-	}
-
-	if _, err := git.SwitchForIssue(issueFile.Branch, branchOrigin); err != nil {
-		return "", fmt.Errorf("switch for issue: %w", err)
-	}
-
 	timeout := time.Duration(cfg.AgentTimeout) * time.Second
 
 	content, err := os.ReadFile(issueFile.FilePath)
@@ -64,6 +49,13 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 		return "", fmt.Errorf("no valid promise found in agent output")
 	}
 
+	if role == issue.RoleImplement && *promise == agent.Complete {
+		commitMsg := fmt.Sprintf("loop: %s — %s", issueFile.Title, *promise)
+		if err := git.CommitAll(commitMsg); err != nil {
+			return "", fmt.Errorf("commit changes: %w", err)
+		}
+	}
+
 	return *promise, nil
 }
 
@@ -71,21 +63,6 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 	if issueFile.ExecMode == issue.ExecModeHITLOnly {
 		fmt.Fprintf(os.Stderr, "--- issue %q requires human-in-the-loop (HITL-only), skipping agent ---\n", issueFile.Title)
 		return agent.NoMoreTasks, nil
-	}
-
-	restore, err := git.SaveContext()
-	if err != nil {
-		return "", fmt.Errorf("save git context: %w", err)
-	}
-	defer restore()
-
-	branchOrigin := cfg.BranchOrigin
-	if branchOrigin == "" {
-		branchOrigin = config.DefaultBranchOrigin
-	}
-
-	if _, err := git.SwitchForIssue(issueFile.Branch, branchOrigin); err != nil {
-		return "", fmt.Errorf("switch for issue: %w", err)
 	}
 
 	timeout := time.Duration(cfg.AgentTimeout) * time.Second
@@ -110,6 +87,13 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 	promise := agent.ParsePromises(result.Stdout.String())
 	if promise == nil {
 		return "", fmt.Errorf("no valid promise found in agent output")
+	}
+
+	if role == issue.RoleImplement && *promise == agent.Complete {
+		commitMsg := fmt.Sprintf("loop: %s — %s", issueFile.Title, *promise)
+		if err := git.CommitAll(commitMsg); err != nil {
+			return "", fmt.Errorf("commit changes: %w", err)
+		}
 	}
 
 	return *promise, nil

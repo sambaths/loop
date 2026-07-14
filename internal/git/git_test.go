@@ -621,12 +621,18 @@ func TestRestoreContextStashConflict(t *testing.T) {
 	exec.Command("git", "add", "conflict.txt").Run()
 	exec.Command("git", "commit", "-m", "working tree change").Run()
 
-	// Restore should handle conflict internally (log to stderr, drop stash)
+	// Restore should handle conflict internally (log to stderr)
 	restore()
 
-	// Verify stash was dropped — a second pop should be a no-op
-	if err := PopStash(); err != nil {
-		t.Fatalf("expected stash to be dropped after conflict: %v", err)
+	// With the new apply-then-drop approach, stash is preserved on conflict.
+	// Verify it still exists — StashApply should return an error (conflict).
+	if err := StashApply(); err == nil {
+		t.Fatalf("expected stash apply to fail with conflict after restore: %v", err)
+	}
+
+	// Clean up: explicitly drop the stash
+	if err := StashDrop(); err != nil {
+		t.Fatalf("StashDrop failed: %v", err)
 	}
 }
 
@@ -1060,8 +1066,15 @@ func TestPopStashConflict(t *testing.T) {
 		t.Fatalf("expected ErrStashConflict, got: %v", err)
 	}
 
-	if err := PopStash(); err != nil {
-		t.Fatalf("expected second PopStash to succeed (stash should have been dropped): %v", err)
+	// With the new apply-then-drop approach, the stash is preserved on
+	// conflict so user data is not lost. Verify StashApply still errors.
+	if err := StashApply(); err == nil {
+		t.Fatalf("expected stash apply to fail with conflict after PopStash: %v", err)
+	}
+
+	// Clean up: explicitly drop the stash
+	if err := StashDrop(); err != nil {
+		t.Fatalf("StashDrop failed: %v", err)
 	}
 }
 

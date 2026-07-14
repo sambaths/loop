@@ -70,17 +70,82 @@ func StashChanges() (bool, error) {
 	return true, nil
 }
 
-func PopStash() error {
-	stdout, stderr, err := RunGit("stash", "pop")
+func StashApply() error {
+	_, stderr, err := RunGit("stash", "apply")
 	if err != nil {
 		if strings.Contains(stderr, "No stash entries found") {
 			return nil
 		}
-		if strings.Contains(stderr, "CONFLICT") || strings.Contains(stdout, "CONFLICT") {
-			RunGit("stash", "drop")
-			return fmt.Errorf("stash conflict: %w", ErrStashConflict)
+		return err
+	}
+	return nil
+}
+
+func StashDrop() error {
+	_, stderr, err := RunGit("stash", "drop")
+	if err != nil {
+		if strings.Contains(stderr, "No stash entries found") {
+			return nil
 		}
-		return fmt.Errorf("stash pop failed: %s: %w", stderr, err)
+		return fmt.Errorf("stash drop: %s: %w", stderr, err)
+	}
+	return nil
+}
+
+func PopStash() error {
+	if err := StashApply(); err != nil {
+		return ErrStashConflict
+	}
+	return StashDrop()
+}
+
+func WorkingTreeClean() (bool, error) {
+	status, stderr, err := RunGit("status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("check status: %s: %w", stderr, err)
+	}
+	return status == "", nil
+}
+
+func CommitAll(msg string) error {
+	_, stderr, err := RunGit("add", "-A")
+	if err != nil {
+		return fmt.Errorf("git add: %s: %w", stderr, err)
+	}
+	_, stderr, err = RunGit("commit", "-m", msg)
+	if err != nil {
+		if strings.Contains(stderr, "nothing to commit") {
+			return nil
+		}
+		return fmt.Errorf("git commit: %s: %w", stderr, err)
+	}
+	return nil
+}
+
+func TempBranchName(slug string) string {
+	return "loop/" + slug
+}
+
+func CreateTempBranch(name, base string) error {
+	_, _, err := RunGit("rev-parse", "--verify", "refs/heads/"+name)
+	if err == nil {
+		return SwitchBranch(name)
+	}
+	return CreateBranch(name, base)
+}
+
+func MergeFFOnly(src string) error {
+	_, stderr, err := RunGit("merge", "--ff-only", src)
+	if err != nil {
+		return fmt.Errorf("merge --ff-only %s: %s: %w", src, stderr, err)
+	}
+	return nil
+}
+
+func DeleteBranch(name string) error {
+	_, stderr, err := RunGit("branch", "-d", name)
+	if err != nil {
+		return fmt.Errorf("delete branch %s: %s: %w", name, stderr, err)
 	}
 	return nil
 }
