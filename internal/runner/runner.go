@@ -169,59 +169,67 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 			targetBranch = config.DefaultBranchOrigin
 		}
 
-		// Save user's working tree and note current branch
-		stashed, stashErr := git.StashChanges()
-		if stashErr != nil {
-			return fmt.Errorf("stash before iteration: %w", stashErr)
-		}
-		origBranch, branchErr := git.CurrentBranch()
-		if branchErr != nil {
-			return fmt.Errorf("get current branch: %w", branchErr)
-		}
-
-		// Ensure we always switch back and restore stash, even on error/crash
-		defer func() {
-			if err := git.SwitchBranch(origBranch); err != nil {
-				lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
+		var promise agent.Promise
+		if iterErr := func() error {
+			// Save user's working tree and note current branch
+			stashed, stashErr := git.StashChanges()
+			if stashErr != nil {
+				return fmt.Errorf("stash before iteration: %w", stashErr)
 			}
-			if stashed {
-				if applyErr := git.StashApply(); applyErr != nil {
-					lineFn(fmt.Sprintf("--- warning: could not restore stash: %v (stash preserved) ---", applyErr))
-				} else {
-					if dropErr := git.StashDrop(); dropErr != nil {
-						lineFn(fmt.Sprintf("--- warning: stash drop failed: %v ---", dropErr))
-					}
-				}
+			origBranch, branchErr := git.CurrentBranch()
+			if branchErr != nil {
+				return fmt.Errorf("get current branch: %w", branchErr)
 			}
-		}()
 
-		// Create/switch to temp branch
-		if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
-			return fmt.Errorf("create temp branch: %w", err)
-		}
-
-		promise, err := RunIterationStreamed(ctx, cfg, selectedFile, role, lineFn)
-		if err != nil {
-			return fmt.Errorf("iteration %d: %w", i+1, err)
-		}
-
-		// On test pass, merge temp branch into target and delete it
-		if role == issue.RoleTest && promise == agent.TestPass {
-			if err := git.SwitchBranch(targetBranch); err != nil {
-				lineFn(fmt.Sprintf("--- warning: failed to switch to %s for merge: %v ---", targetBranch, err))
-			} else {
-				if err := git.MergeFFOnly(tempBranch); err != nil {
-					lineFn(fmt.Sprintf("--- warning: failed to merge %s into %s: %v ---", tempBranch, targetBranch, err))
-				} else {
-					if err := git.DeleteBranch(tempBranch); err != nil {
-						lineFn(fmt.Sprintf("--- warning: failed to delete temp branch %s: %v ---", tempBranch, err))
-					}
-					lineFn(fmt.Sprintf("--- merged %s into %s ---", tempBranch, targetBranch))
-				}
+			// Ensure we always switch back and restore stash, even on error/crash
+			defer func() {
 				if err := git.SwitchBranch(origBranch); err != nil {
 					lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
 				}
+				if stashed {
+					if applyErr := git.StashApply(); applyErr != nil {
+						lineFn(fmt.Sprintf("--- warning: could not restore stash: %v (stash preserved) ---", applyErr))
+					} else {
+						if dropErr := git.StashDrop(); dropErr != nil {
+							lineFn(fmt.Sprintf("--- warning: stash drop failed: %v ---", dropErr))
+						}
+					}
+				}
+			}()
+
+			// Create/switch to temp branch
+			if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
+				return fmt.Errorf("create temp branch: %w", err)
 			}
+
+			var runErr error
+			promise, runErr = RunIterationStreamed(ctx, cfg, selectedFile, role, lineFn)
+			if runErr != nil {
+				return fmt.Errorf("iteration %d: %w", i+1, runErr)
+			}
+
+			// On test pass, merge temp branch into target and delete it
+			if role == issue.RoleTest && promise == agent.TestPass {
+				if err := git.SwitchBranch(targetBranch); err != nil {
+					lineFn(fmt.Sprintf("--- warning: failed to switch to %s for merge: %v ---", targetBranch, err))
+				} else {
+					if err := git.MergeFFOnly(tempBranch); err != nil {
+						lineFn(fmt.Sprintf("--- warning: failed to merge %s into %s: %v ---", tempBranch, targetBranch, err))
+					} else {
+						if err := git.DeleteBranch(tempBranch); err != nil {
+							lineFn(fmt.Sprintf("--- warning: failed to delete temp branch %s: %v ---", tempBranch, err))
+						}
+						lineFn(fmt.Sprintf("--- merged %s into %s ---", tempBranch, targetBranch))
+					}
+					if err := git.SwitchBranch(origBranch); err != nil {
+						lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
+					}
+				}
+			}
+
+			return nil
+		}(); iterErr != nil {
+			return fmt.Errorf("iteration %d: %w", i+1, iterErr)
 		}
 
 		if promise == agent.NoMoreTasks {
@@ -411,59 +419,67 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 			targetBranch = config.DefaultBranchOrigin
 		}
 
-		// Save user's working tree and note current branch
-		stashed, stashErr := git.StashChanges()
-		if stashErr != nil {
-			return fmt.Errorf("stash before iteration: %w", stashErr)
-		}
-		origBranch, branchErr := git.CurrentBranch()
-		if branchErr != nil {
-			return fmt.Errorf("get current branch: %w", branchErr)
-		}
-
-		// Ensure we always switch back and restore stash, even on error/crash
-		defer func() {
-			if err := git.SwitchBranch(origBranch); err != nil {
-				fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
+		var promise agent.Promise
+		if iterErr := func() error {
+			// Save user's working tree and note current branch
+			stashed, stashErr := git.StashChanges()
+			if stashErr != nil {
+				return fmt.Errorf("stash before iteration: %w", stashErr)
 			}
-			if stashed {
-				if applyErr := git.StashApply(); applyErr != nil {
-					fmt.Fprintf(os.Stderr, "--- warning: could not restore stash: %v (stash preserved) ---\n", applyErr)
-				} else {
-					if dropErr := git.StashDrop(); dropErr != nil {
-						fmt.Fprintf(os.Stderr, "--- warning: stash drop failed: %v ---\n", dropErr)
-					}
-				}
+			origBranch, branchErr := git.CurrentBranch()
+			if branchErr != nil {
+				return fmt.Errorf("get current branch: %w", branchErr)
 			}
-		}()
 
-		// Create/switch to temp branch
-		if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
-			return fmt.Errorf("create temp branch: %w", err)
-		}
-
-		promise, err := RunIterationContext(ctx, cfg, selectedFile, role)
-		if err != nil {
-			return fmt.Errorf("iteration %d: %w", i+1, err)
-		}
-
-		// On test pass, merge temp branch into target and delete it
-		if role == issue.RoleTest && promise == agent.TestPass {
-			if err := git.SwitchBranch(targetBranch); err != nil {
-				fmt.Fprintf(os.Stderr, "--- warning: failed to switch to %s for merge: %v ---\n", targetBranch, err)
-			} else {
-				if err := git.MergeFFOnly(tempBranch); err != nil {
-					fmt.Fprintf(os.Stderr, "--- warning: failed to merge %s into %s: %v ---\n", tempBranch, targetBranch, err)
-				} else {
-					if err := git.DeleteBranch(tempBranch); err != nil {
-						fmt.Fprintf(os.Stderr, "--- warning: failed to delete temp branch %s: %v ---\n", tempBranch, err)
-					}
-					fmt.Fprintf(os.Stderr, "--- merged %s into %s ---\n", tempBranch, targetBranch)
-				}
+			// Ensure we always switch back and restore stash, even on error/crash
+			defer func() {
 				if err := git.SwitchBranch(origBranch); err != nil {
 					fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
 				}
+				if stashed {
+					if applyErr := git.StashApply(); applyErr != nil {
+						fmt.Fprintf(os.Stderr, "--- warning: could not restore stash: %v (stash preserved) ---\n", applyErr)
+					} else {
+						if dropErr := git.StashDrop(); dropErr != nil {
+							fmt.Fprintf(os.Stderr, "--- warning: stash drop failed: %v ---\n", dropErr)
+						}
+					}
+				}
+			}()
+
+			// Create/switch to temp branch
+			if err := git.CreateTempBranch(tempBranch, targetBranch, cfg.BranchFromOrigin); err != nil {
+				return fmt.Errorf("create temp branch: %w", err)
 			}
+
+			var runErr error
+			promise, runErr = RunIterationContext(ctx, cfg, selectedFile, role)
+			if runErr != nil {
+				return fmt.Errorf("iteration %d: %w", i+1, runErr)
+			}
+
+			// On test pass, merge temp branch into target and delete it
+			if role == issue.RoleTest && promise == agent.TestPass {
+				if err := git.SwitchBranch(targetBranch); err != nil {
+					fmt.Fprintf(os.Stderr, "--- warning: failed to switch to %s for merge: %v ---\n", targetBranch, err)
+				} else {
+					if err := git.MergeFFOnly(tempBranch); err != nil {
+						fmt.Fprintf(os.Stderr, "--- warning: failed to merge %s into %s: %v ---\n", tempBranch, targetBranch, err)
+					} else {
+						if err := git.DeleteBranch(tempBranch); err != nil {
+							fmt.Fprintf(os.Stderr, "--- warning: failed to delete temp branch %s: %v ---\n", tempBranch, err)
+						}
+						fmt.Fprintf(os.Stderr, "--- merged %s into %s ---\n", tempBranch, targetBranch)
+					}
+					if err := git.SwitchBranch(origBranch); err != nil {
+						fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
+					}
+				}
+			}
+
+			return nil
+		}(); iterErr != nil {
+			return fmt.Errorf("iteration %d: %w", i+1, iterErr)
 		}
 
 		if promise == agent.NoMoreTasks {
