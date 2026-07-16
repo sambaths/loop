@@ -45,10 +45,7 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 		return "", fmt.Errorf("agent run: %w", err)
 	}
 
-	promise := agent.ParsePromises(result.Stdout.String())
-	if promise == nil {
-		return "", fmt.Errorf("no valid promise found in agent output")
-	}
+	promise := resolvePromise(ctx, cfg.IssueDir, issueFile.Title, role, result)
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
 		commitMsg := result.CommitMsg
@@ -65,6 +62,34 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 	}
 
 	return *promise, nil
+}
+
+func resolvePromise(ctx context.Context, issueDir, title string, role issue.Role, result *agent.Result) *agent.Promise {
+	promise := agent.ParsePromises(result.Stdout.String())
+	if promise != nil {
+		return promise
+	}
+
+	stdout := result.Stdout.String()
+	tailLen := len(stdout)
+	if tailLen > 200 {
+		tailLen = 200
+	}
+	if tailLen > 0 {
+		fmt.Fprintf(os.Stderr, "warning: promise marker missing in agent output for issue %q (role %s); last %d bytes:\n%s\n", title, role, tailLen, stdout[len(stdout)-tailLen:])
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: promise marker missing in agent output for issue %q (role %s); no output produced\n", title, role)
+	}
+
+	recovered := agent.RecoverPromise(ctx, issueDir, 30*time.Second)
+	if recovered != nil {
+		fmt.Fprintf(os.Stderr, "warning: promise recovery succeeded for issue %q, using recovered promise %q\n", title, *recovered)
+		return recovered
+	}
+
+	fmt.Fprintf(os.Stderr, "warning: promise recovery failed for issue %q, defaulting to TEST_FAIL\n", title)
+	defaultPromise := agent.TestFail
+	return &defaultPromise
 }
 
 func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *issue.IssueFile, role issue.Role) (agent.Promise, error) {
@@ -92,10 +117,7 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 		return "", fmt.Errorf("agent run: %w", err)
 	}
 
-	promise := agent.ParsePromises(result.Stdout.String())
-	if promise == nil {
-		return "", fmt.Errorf("no valid promise found in agent output")
-	}
+	promise := resolvePromise(ctx, cfg.IssueDir, issueFile.Title, role, result)
 
 	if role == issue.RoleImplement && *promise == agent.Complete {
 		commitMsg := result.CommitMsg
