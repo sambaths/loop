@@ -350,6 +350,12 @@ func runHeadlessRun(n int, cfg *config.Config) {
 		}
 	}
 	printShutdownSummary(n, n, cfg.IssueDir)
+
+	if fileInfo, _ := os.Stdin.Stat(); fileInfo != nil && (fileInfo.Mode()&os.ModeCharDevice) != 0 {
+		fmt.Fprintf(os.Stderr, "\nPress Enter to exit")
+		var line string
+		fmt.Scanln(&line)
+	}
 }
 
 func printShutdownSummary(iterations, total int, issuesDir string) {

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sambaths/loop/internal/config"
+	"github.com/sambaths/loop/internal/issue"
 )
 
 const maxLogLines = 5000
@@ -56,6 +57,8 @@ type Model struct {
 	Err       error
 	Finished  bool
 	quit      bool
+
+	pipelineCounts map[string]int
 
 	startTime time.Time
 	elapsed   time.Duration
@@ -175,6 +178,31 @@ func (m *Model) updateLogViewport() {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.Finished {
+			switch msg.String() {
+			case "up", "down", "pgup", "pgdown", "halfpgup", "halfpgdown":
+				m.autoOn = false
+				var cmd tea.Cmd
+				m.viewport, cmd = m.viewport.Update(msg)
+				return m, cmd
+			case "g", "home":
+				m.autoOn = false
+				m.viewport.GotoTop()
+				return m, nil
+			case "G", "end":
+				m.autoOn = true
+				m.viewport.GotoBottom()
+				return m, nil
+			case "s":
+				m.autoOn = !m.autoOn
+				if m.autoOn {
+					m.viewport.GotoBottom()
+				}
+				return m, nil
+			}
+			m.quit = true
+			return m, tea.Quit
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if m.cancel != nil {
@@ -188,7 +216,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.GotoBottom()
 			}
 			return m, nil
-		case "up", "down", "pgup", "pgdn", "halfpgup", "halfpgdn":
+		case "up", "down", "pgup", "pgdown", "halfpgup", "halfpgdown":
 			m.autoOn = false
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -239,7 +267,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CompletionMsg:
 		m.Finished = true
 		m.Err = msg.Err
-		return m, tea.Quit
+		m.elapsed = time.Since(m.startTime)
+		ps, err := issue.ScanIssueDir(m.cfg.IssueDir)
+		if err == nil {
+			counts := ps.Counts()
+			m.pipelineCounts = map[string]int{
+				"todo":        counts[issue.StateTodo],
+				"test-ready":  counts[issue.StateTestReady],
+				"done":        counts[issue.StateDone],
+				"quarantined": counts[issue.StateQuarantine],
+			}
+		}
+		return m, nil
 	case doneWaitingMsg:
 		return m, m.waitDone()
 	}
@@ -257,6 +296,13 @@ func (m *Model) View() string {
 }
 
 func (m *Model) headerHeight() int {
+	if m.Finished {
+		h := 9
+		if m.pipelineCounts != nil {
+			h += 4
+		}
+		return h
+	}
 	h := 16
 	if m.phase != "" {
 		h += 2
@@ -349,11 +395,42 @@ func (m *Model) completionView() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	iterStr := fmt.Sprintf("Iterations completed: %d", m.iteration)
+
+	iterStr := fmt.Sprintf("Iterations: %d", m.iteration)
 	if m.total > 0 {
-		iterStr = fmt.Sprintf("Iterations completed: %d/%d", m.iteration, m.total)
+		iterStr = fmt.Sprintf("Iterations: %d/%d", m.iteration, m.total)
 	}
-	b.WriteString(iterStr)
+	b.WriteString(labelStyle.Render(iterStr))
 	b.WriteString("\n")
+
+	b.WriteString(labelStyle.Render(fmt.Sprintf("Elapsed: %s", formatDuration(m.elapsed))))
+	b.WriteString("\n\n")
+
+	if m.pipelineCounts != nil {
+		b.WriteString(labelStyle.Render("Pipeline counts"))
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s: %d  %s: %d  %s: %d  %s: %d\n",
+			countStyle.Render("todo"),
+			m.pipelineCounts["todo"],
+			countStyle.Render("test-ready"),
+			m.pipelineCounts["test-ready"],
+			countStyle.Render("done"),
+			m.pipelineCounts["done"],
+			countStyle.Render("quarantined"),
+			m.pipelineCounts["quarantined"],
+		))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
+
+	autoLabel := "ON"
+	if !m.autoOn {
+		autoLabel = "OFF"
+	}
+	b.WriteString(helpStyle.Render(fmt.Sprintf("Auto-scroll: %s  ", autoLabel)))
+	b.WriteString(helpStyle.Render("↑↓/pgup/pgdn scroll  s toggle  "))
+	b.WriteString(helpStyle.Render("Press any key to exit"))
 	return b.String()
 }

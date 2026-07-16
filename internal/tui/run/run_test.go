@@ -169,8 +169,8 @@ func TestCompletionSuccess(t *testing.T) {
 	if m2.Err != nil {
 		t.Errorf("expected nil error, got %v", m2.Err)
 	}
-	if cmd == nil {
-		t.Error("expected tea.Quit cmd")
+	if cmd != nil {
+		t.Error("expected nil cmd (no tea.Quit) on CompletionMsg")
 	}
 
 	view := m2.View()
@@ -192,8 +192,8 @@ func TestCompletionError(t *testing.T) {
 	if m2.Err == nil {
 		t.Error("expected non-nil error")
 	}
-	if cmd == nil {
-		t.Error("expected tea.Quit cmd")
+	if cmd != nil {
+		t.Error("expected nil cmd (no tea.Quit) on CompletionMsg")
 	}
 
 	view := m2.View()
@@ -323,6 +323,9 @@ func TestCompletionShowsCount(t *testing.T) {
 	if !strings.Contains(view, "3/5") {
 		t.Errorf("expected completion view to show '3/5', got:\n%s", view)
 	}
+	if !strings.Contains(view, "Iterations:") {
+		t.Error("expected 'Iterations:' label in completion view")
+	}
 }
 
 func TestCompletionWithoutTotal(t *testing.T) {
@@ -335,6 +338,134 @@ func TestCompletionWithoutTotal(t *testing.T) {
 	view := m2.View()
 	if strings.Contains(view, "3/0") {
 		t.Errorf("expected completion view to not show /0 format, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Iterations:") {
+		t.Error("expected 'Iterations:' label in completion view")
+	}
+}
+
+func TestCompletionKeyDismisses(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	result, _ := m.Update(CompletionMsg{Err: nil})
+	m2 := result.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	// Any key (q) should dismiss the completion screen.
+	result2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m3 := result2.(*Model)
+
+	if !m3.quit {
+		t.Error("expected quit to be true after key press in completed state")
+	}
+	if cmd == nil {
+		t.Error("expected tea.Quit cmd")
+	}
+}
+
+func TestCompletionCtrlCDismisses(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	result, _ := m.Update(CompletionMsg{Err: nil})
+	m2 := result.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	result2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m3 := result2.(*Model)
+
+	if !m3.quit {
+		t.Error("expected quit to be true after ctrl+c in completed state")
+	}
+	if cmd == nil {
+		t.Error("expected tea.Quit cmd")
+	}
+}
+
+func TestCompletionEnterDismisses(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	result, _ := m.Update(CompletionMsg{Err: nil})
+	m2 := result.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	result2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := result2.(*Model)
+
+	if !m3.quit {
+		t.Error("expected quit to be true after Enter in completed state")
+	}
+	if cmd == nil {
+		t.Error("expected tea.Quit cmd")
+	}
+}
+
+func TestCompletionScrollKeysDoNotDismiss(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	result, _ := m.Update(CompletionMsg{Err: nil})
+	m2 := result.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	// Scroll keys should NOT dismiss.
+	scrollKeys := []tea.KeyType{tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown}
+	for _, kt := range scrollKeys {
+		r, _ := m2.Update(tea.KeyMsg{Type: kt})
+		m3 := r.(*Model)
+		if m3.quit {
+			t.Errorf("expected quit to be false after scroll key %v in completed state", kt)
+		}
+	}
+}
+
+func TestCompletionGKeyDoesNotDismiss(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	result, _ := m.Update(CompletionMsg{Err: nil})
+	m2 := result.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	r, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m3 := r.(*Model)
+	if m3.quit {
+		t.Error("expected quit to be false after g in completed state")
+	}
+}
+
+func TestCompletionHomeKeyDoesNotDismiss(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	result, _ := m.Update(CompletionMsg{Err: nil})
+	m2 := result.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	r, _ := m2.Update(tea.KeyMsg{Type: tea.KeyHome})
+	m3 := r.(*Model)
+	if m3.quit {
+		t.Error("expected quit to be false after Home in completed state")
 	}
 }
 
@@ -451,6 +582,9 @@ func TestFinishedWithIterationZero(t *testing.T) {
 	view := m2.View()
 	if !strings.Contains(view, "0/3") {
 		t.Errorf("expected completion view to show '0/3', got:\n%s", view)
+	}
+	if !strings.Contains(view, "Iterations:") {
+		t.Error("expected 'Iterations:' label in completion view")
 	}
 }
 
