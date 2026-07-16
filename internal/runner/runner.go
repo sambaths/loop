@@ -219,14 +219,21 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 				} else {
 					if err := git.MergeBranch(tempBranch); err != nil {
 						lineFn(fmt.Sprintf("--- warning: failed to merge %s into %s: %v ---", tempBranch, targetBranch, err))
+						// Clean working tree and switch back to prevent state carry-over
+						if cleanErr := git.CleanWorkingTree(); cleanErr != nil {
+							lineFn(fmt.Sprintf("--- warning: failed to clean working tree after merge failure: %v ---", cleanErr))
+						}
+						if switchErr := git.SwitchBranch(origBranch); switchErr != nil {
+							lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, switchErr))
+						}
 					} else {
 						if err := git.DeleteBranch(tempBranch); err != nil {
 							lineFn(fmt.Sprintf("--- warning: failed to delete temp branch %s: %v ---", tempBranch, err))
 						}
 						lineFn(fmt.Sprintf("--- merged %s into %s ---", tempBranch, targetBranch))
-					}
-					if err := git.SwitchBranch(origBranch); err != nil {
-						lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
+						if err := git.SwitchBranch(origBranch); err != nil {
+							lineFn(fmt.Sprintf("--- warning: failed to switch back to %s: %v ---", origBranch, err))
+						}
 					}
 				}
 			}
@@ -473,14 +480,21 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 				} else {
 					if err := git.MergeBranch(tempBranch); err != nil {
 						fmt.Fprintf(os.Stderr, "--- warning: failed to merge %s into %s: %v ---\n", tempBranch, targetBranch, err)
+						// Clean working tree and switch back to prevent state carry-over
+						if cleanErr := git.CleanWorkingTree(); cleanErr != nil {
+							fmt.Fprintf(os.Stderr, "--- warning: failed to clean working tree after merge failure: %v ---\n", cleanErr)
+						}
+						if switchErr := git.SwitchBranch(origBranch); switchErr != nil {
+							fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, switchErr)
+						}
 					} else {
 						if err := git.DeleteBranch(tempBranch); err != nil {
 							fmt.Fprintf(os.Stderr, "--- warning: failed to delete temp branch %s: %v ---\n", tempBranch, err)
 						}
 						fmt.Fprintf(os.Stderr, "--- merged %s into %s ---\n", tempBranch, targetBranch)
-					}
-					if err := git.SwitchBranch(origBranch); err != nil {
-						fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
+						if err := git.SwitchBranch(origBranch); err != nil {
+							fmt.Fprintf(os.Stderr, "--- warning: failed to switch back to %s: %v ---\n", origBranch, err)
+						}
 					}
 				}
 			}
