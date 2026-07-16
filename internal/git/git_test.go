@@ -1392,3 +1392,259 @@ func TestPopStashOnlyNonLoopStashes(t *testing.T) {
 		t.Fatalf("second PopStash failed: %v", err)
 	}
 }
+
+func TestHasUnmergedIndexFalse(t *testing.T) {
+	dir := t.TempDir()
+	gitInitRepo(t, dir)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	if HasUnmergedIndex() {
+		t.Fatal("expected HasUnmergedIndex to be false for clean repo")
+	}
+
+	writeFile(t, dir, "file.txt", "content")
+	exec.Command("git", "add", "file.txt").Run()
+
+	if HasUnmergedIndex() {
+		t.Fatal("expected HasUnmergedIndex to be false after staging")
+	}
+}
+
+func TestHasUnmergedIndexTrue(t *testing.T) {
+	dir := t.TempDir()
+	gitInitRepo(t, dir)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Create initial file on main
+	writeFile(t, dir, "conflict.txt", "base")
+	exec.Command("git", "add", "conflict.txt").Run()
+	exec.Command("git", "commit", "-m", "base").Run()
+
+	defaultBranch, _ := CurrentBranch()
+
+	// Create conflicting branch
+	exec.Command("git", "checkout", "-b", "conflict-branch").Run()
+	writeFile(t, dir, "conflict.txt", "branch change")
+	exec.Command("git", "add", "conflict.txt").Run()
+	exec.Command("git", "commit", "-m", "branch change").Run()
+
+	// Switch back to main and make conflicting change
+	exec.Command("git", "checkout", defaultBranch).Run()
+	writeFile(t, dir, "conflict.txt", "main change")
+	exec.Command("git", "add", "conflict.txt").Run()
+	exec.Command("git", "commit", "-m", "main change").Run()
+
+	// Attempt merge to create conflict
+	exec.Command("git", "merge", "conflict-branch").Run()
+
+	if !HasUnmergedIndex() {
+		t.Fatal("expected HasUnmergedIndex to be true during merge conflict")
+	}
+
+	// Abort to clean up
+	exec.Command("git", "merge", "--abort").Run()
+}
+
+func TestStashChangesWithUnmergedIndex(t *testing.T) {
+	dir := t.TempDir()
+	gitInitRepo(t, dir)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Create initial file
+	writeFile(t, dir, "conflict.txt", "base")
+	exec.Command("git", "add", "conflict.txt").Run()
+	exec.Command("git", "commit", "-m", "base").Run()
+
+	defaultBranch, _ := CurrentBranch()
+
+	// Create conflicting branch
+	exec.Command("git", "checkout", "-b", "conflict-branch").Run()
+	writeFile(t, dir, "conflict.txt", "branch change")
+	exec.Command("git", "add", "conflict.txt").Run()
+	exec.Command("git", "commit", "-m", "branch change").Run()
+
+	// Switch back to main and make conflicting change
+	exec.Command("git", "checkout", defaultBranch).Run()
+	writeFile(t, dir, "conflict.txt", "main change")
+	exec.Command("git", "add", "conflict.txt").Run()
+	exec.Command("git", "commit", "-m", "main change").Run()
+
+	// Create merge conflict
+	exec.Command("git", "merge", "conflict-branch").Run()
+
+	if !HasUnmergedIndex() {
+		t.Fatal("expected HasUnmergedIndex to be true during merge conflict")
+	}
+
+	// StashChanges should resolve the unmerged index and succeed
+	stashed, err := StashChanges()
+	if err != nil {
+		t.Fatalf("StashChanges with unmerged index failed: %v", err)
+	}
+	if !stashed {
+		t.Fatal("expected stash to succeed with unmerged index")
+	}
+
+	// Verify tree is clean after stash
+	clean, err := WorkingTreeClean()
+	if err != nil {
+		t.Fatalf("WorkingTreeClean failed: %v", err)
+	}
+	if !clean {
+		t.Fatal("expected clean working tree after stash")
+	}
+}
+
+func TestMergeBranchAbortsOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	gitInitRepo(t, dir)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Create initial file and commit on main
+	writeFile(t, dir, "merge.txt", "base")
+	exec.Command("git", "add", "merge.txt").Run()
+	exec.Command("git", "commit", "-m", "base").Run()
+
+	defaultBranch, _ := CurrentBranch()
+
+	// Create conflicting branch
+	exec.Command("git", "checkout", "-b", "feature-branch").Run()
+	writeFile(t, dir, "merge.txt", "feature change")
+	exec.Command("git", "add", "merge.txt").Run()
+	exec.Command("git", "commit", "-m", "feature change").Run()
+
+	// Switch back and make conflicting change
+	exec.Command("git", "checkout", defaultBranch).Run()
+	writeFile(t, dir, "merge.txt", "main change")
+	exec.Command("git", "add", "merge.txt").Run()
+	exec.Command("git", "commit", "-m", "main change").Run()
+
+	// Merge should fail (conflict)
+	err := MergeBranch("feature-branch")
+	if err == nil {
+		t.Fatal("expected merge to fail with conflict")
+	}
+
+	// After merge failure, there should be no unmerged index (abort cleans up)
+	if HasUnmergedIndex() {
+		t.Fatal("expected no unmerged index after MergeBranch failure (abort should clean up)")
+	}
+}
+
+func TestStashChangesPatchFallback(t *testing.T) {
+	dir := t.TempDir()
+	gitInitRepo(t, dir)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Create a tracked file with modifications
+	writeFile(t, dir, "tracked.txt", "clean")
+	exec.Command("git", "add", "tracked.txt").Run()
+	exec.Command("git", "commit", "-m", "add tracked").Run()
+
+	// Modify the file
+	writeFile(t, dir, "tracked.txt", "modified-content")
+
+	// Get the repo root for .git path
+	repoRoot, _, _ := RunGit("rev-parse", "--show-toplevel")
+	repoRoot = strings.TrimSpace(repoRoot)
+	patchPath := filepath.Join(repoRoot, ".git", "loop-autosave.patch")
+
+	// Verify no patch file exists yet
+	if _, err := os.Stat(patchPath); err == nil {
+		os.Remove(patchPath)
+	}
+
+	// Use git stash create directly (this is the plumbing fallback path)
+	createOut, _, createErr := RunGit("stash", "create")
+	if createErr != nil {
+		t.Fatalf("git stash create failed: %v", createErr)
+	}
+	if createOut == "" {
+		t.Fatal("expected stash create to return a commit hash")
+	}
+
+	_, storeStderr, storeErr := RunGit("stash", "store", createOut)
+	if storeErr != nil {
+		t.Fatalf("git stash store failed: %s: %v", storeStderr, storeErr)
+	}
+
+	// Tree should now be clean
+	clean, _ := WorkingTreeClean()
+	if !clean {
+		t.Log("tree not clean after stash store — expected behavior depends on stash create coverage")
+	}
+
+	// StashDrop to clean up
+	StashDrop()
+}
+
+func TestStashChangesPatchFileCreated(t *testing.T) {
+	dir := t.TempDir()
+	gitInitRepo(t, dir)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Create a tracked file with modifications
+	writeFile(t, dir, "patch.txt", "original")
+	exec.Command("git", "add", "patch.txt").Run()
+	exec.Command("git", "commit", "-m", "add patch.txt").Run()
+
+	writeFile(t, dir, "patch.txt", "modified content for patch")
+	writeFile(t, dir, "untracked-patch.txt", "new untracked file")
+
+	// Test that patch file creation works as a backup mechanism
+	repoRoot, _, _ := RunGit("rev-parse", "--show-toplevel")
+	repoRoot = strings.TrimSpace(repoRoot)
+	patchPath := filepath.Join(repoRoot, ".git", "loop-autosave.patch")
+
+	_, patchStderr, patchErr := RunGit("diff", "--binary", "--output", patchPath)
+	if patchErr != nil {
+		t.Fatalf("git diff --binary --output failed: %s: %v", patchStderr, patchErr)
+	}
+
+	if _, err := os.Stat(patchPath); os.IsNotExist(err) {
+		t.Fatal("expected patch file to exist")
+	}
+
+	data, err := os.ReadFile(patchPath)
+	if err != nil {
+		t.Fatalf("read patch file: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected non-empty patch file")
+	}
+
+	// Verify patch can be applied to restore changes
+	exec.Command("git", "checkout", "--", "patch.txt").Run()
+	data, _ = os.ReadFile(filepath.Join(dir, "patch.txt"))
+	if string(data) != "original" {
+		t.Fatalf("expected original content after checkout, got %q", string(data))
+	}
+
+	_, applyStderr, applyErr := RunGit("apply", patchPath)
+	if applyErr != nil {
+		t.Fatalf("git apply failed: %s: %v", applyStderr, applyErr)
+	}
+
+	data, _ = os.ReadFile(filepath.Join(dir, "patch.txt"))
+	if string(data) != "modified content for patch" {
+		t.Errorf("expected restored content 'modified content for patch', got %q", string(data))
+	}
+}

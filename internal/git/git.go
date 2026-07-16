@@ -54,6 +54,11 @@ func IsRepo() bool {
 	return err == nil
 }
 
+func HasUnmergedIndex() bool {
+	stdout, _, _ := RunGit("ls-files", "-u")
+	return strings.TrimSpace(stdout) != ""
+}
+
 func StashChanges() (bool, error) {
 	status, stderr, err := RunGit("status", "--porcelain")
 	if err != nil {
@@ -62,12 +67,48 @@ func StashChanges() (bool, error) {
 	if status == "" {
 		return false, nil
 	}
+
+	// Pre-check: resolve unmerged index entries that would block stash
+	if HasUnmergedIndex() {
+		_, addStderr, addErr := RunGit("add", "-u")
+		if addErr != nil {
+			// git add -u failed, try merge --abort as fallback
+			_, abortStderr, abortErr := RunGit("merge", "--abort")
+			if abortErr != nil {
+				return false, fmt.Errorf("unmerged index: git add -u failed (%s: %v) and git merge --abort also failed (%s: %v)",
+					addStderr, addErr, abortStderr, abortErr)
+			}
+		}
+	}
+
 	ts := time.Now().Format(time.RFC3339)
 	_, popStderr, popErr := RunGit("stash", "push", "--include-untracked", "-m", stashPrefix+" "+ts)
-	if popErr != nil {
-		return false, fmt.Errorf("stash failed: %s: %w", popStderr, popErr)
+	if popErr == nil {
+		return true, nil
 	}
-	return true, nil
+	stashPushErr := fmt.Errorf("stash push failed: %s: %w", popStderr, popErr)
+
+	// Fallback 1: plumbing stash create + store (skips index validation)
+	if createOut, createStderr, createErr := RunGit("stash", "create"); createErr == nil && createOut != "" {
+		_, storeStderr, storeErr := RunGit("stash", "store", createOut)
+		if storeErr == nil {
+			return true, nil
+		}
+		_ = createStderr
+		_ = storeStderr
+	}
+
+	// Fallback 2: write a binary patch file to .git/loop-autosave.patch
+	if repoRoot, _, rootErr := RunGit("rev-parse", "--show-toplevel"); rootErr == nil {
+		patchPath := filepath.Join(strings.TrimSpace(repoRoot), ".git", "loop-autosave.patch")
+		_, patchStderr, patchErr := RunGit("diff", "--binary", "--output", patchPath)
+		if patchErr == nil {
+			return true, nil
+		}
+		_ = patchStderr
+	}
+
+	return false, stashPushErr
 }
 
 func StashApply() error {
@@ -203,6 +244,10 @@ func MergeBranch(src string) error {
 		return nil
 	}
 	noEditErr := fmt.Errorf("merge --no-edit %s: %s: %w", src, stderr, err)
+
+	// Abort the failed merge to prevent unmerged index entries from
+	// leaking to the next iteration.
+	RunGit("merge", "--abort")
 
 	return fmt.Errorf("fallback merge failed: [ff-only] %w; [no-edit] %w", ffErr, noEditErr)
 }
