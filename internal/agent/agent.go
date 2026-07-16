@@ -315,6 +315,21 @@ func ParseOutput(output string) (Outcome, bool) {
 	}
 }
 
+// RecoverPrompt is the minimal prompt sent to recover a missing promise marker.
+const RecoverPrompt = "Your previous output was missing a promise marker. What was the outcome? Output exactly one of: COMPLETE, TEST_PASS, TEST_FAIL, NO_MORE_TASKS wrapped in __LOOP_RESULT__ / __LOOP_RESULT_END__"
+
+const recoverTimeout = 30 * time.Second
+
+// RecoverPromise tries to recover a missing promise marker by re-invoking
+// the agent with a minimal recovery prompt. Returns nil if recovery fails.
+func RecoverPromise(ctx context.Context, dir string, timeout time.Duration) *Promise {
+	result, err := RunAgentContext(ctx, "", RecoverPrompt, dir, timeout)
+	if err != nil {
+		return nil
+	}
+	return ParsePromises(result.Stdout.String())
+}
+
 // ParseCommitMessage extracts a commit message from between __LOOP_COMMIT__ sentinels.
 // Returns empty string if not found.
 func ParseCommitMessage(output string) string {

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,31 @@ func createIssueFile(t *testing.T, dir string, state issue.State, title string) 
 	}
 }
 
+// setupMockOpencodeConditional creates a mock opencode that outputs a promise
+// on the second call only (for recovery testing). The first call outputs no promise.
+// For calls where stdin contains the recovery prompt, it outputs the recoveryResult.
+func setupMockOpencodeConditional(t *testing.T, recoveryResult string) string {
+	t.Helper()
+	mockDir := t.TempDir()
+	mockPath := filepath.Join(mockDir, "opencode")
+	script := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+input=$(cat)
+echo "$input"
+# If stdin contains the recovery prompt, output a promise
+if echo "$input" | grep -qF "missing a promise marker"; then
+    echo "__LOOP_RESULT__"
+    echo "%s"
+    echo "__LOOP_RESULT_END__"
+fi
+exit 0
+`, recoveryResult)
+	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write mock binary: %v", err)
+	}
+	return mockDir
+}
+
 func TestRunIterationComplete(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)
@@ -151,34 +177,46 @@ func TestRunIterationNoMoreTasks(t *testing.T) {
 	}
 }
 
-func TestRunIterationInvalidPromise(t *testing.T) {
+func TestRunIterationInvalidPromiseCausesRecovery(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	issueFile := createIssueFile(t, dir, issue.StateTodo, "Test Issue")
 	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
 
+	// Mock always outputs INVALID (not a valid promise), so recovery also fails
 	mockDir := setupMockOpencode(t, "INVALID", 0)
 	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
 
-	_, err := RunIteration(cfg, issueFile, issue.RoleImplement)
-	if err == nil {
-		t.Fatal("expected error for invalid promise")
+	promise, err := RunIteration(cfg, issueFile, issue.RoleImplement)
+	if err != nil {
+		t.Fatalf("RunIteration should not return error for invalid promise, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "no valid promise") {
-		t.Errorf("expected 'no valid promise' error, got: %v", err)
+	if promise != agent.TestFail {
+		t.Errorf("expected TEST_FAIL fallback for invalid promise, got %q", promise)
 	}
 }
 
-func TestRunIterationNonZeroExit(t *testing.T) {
+func TestRunIterationNonZeroExitFallsBackToTestFail(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
 	issueFile := createIssueFile(t, dir, issue.StateTodo, "Test Issue")
 	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
 
 	mockDir := setupMockOpencode(t, "INVALID", 1)
 	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
 
-	_, err := RunIteration(cfg, issueFile, issue.RoleImplement)
-	if err == nil {
-		t.Fatal("expected error for non-zero exit with invalid promise")
+	promise, err := RunIteration(cfg, issueFile, issue.RoleImplement)
+	if err != nil {
+		t.Fatalf("RunIteration should not return error for non-zero exit with invalid promise, got: %v", err)
+	}
+	if promise != agent.TestFail {
+		t.Errorf("expected TEST_FAIL fallback for non-zero exit, got %q", promise)
 	}
 }
 
@@ -245,6 +283,44 @@ func TestRunIterationEmptyBranchOrigin(t *testing.T) {
 	}
 	if promise != agent.Complete {
 		t.Errorf("expected COMPLETE, got %q", promise)
+	}
+}
+
+func TestRunIterationPromiseRecovery(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+	issueFile := createIssueFile(t, dir, issue.StateTodo, "Test Issue")
+	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
+
+	mockDir := setupMockOpencodeConditional(t, "COMPLETE")
+	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
+
+	promise, err := RunIteration(cfg, issueFile, issue.RoleImplement)
+	if err != nil {
+		t.Fatalf("RunIteration failed: %v", err)
+	}
+	if promise != agent.Complete {
+		t.Errorf("expected COMPLETE from recovery, got %q", promise)
+	}
+}
+
+func TestRunIterationPromiseRecoveryFails(t *testing.T) {
+	dir := t.TempDir()
+	issueFile := createIssueFile(t, dir, issue.StateTestReady, "Test Issue")
+	cfg := &config.Config{IssueDir: dir, AgentTimeout: 60}
+
+	mockDir := setupMockOpencodeConditional(t, "")
+	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
+
+	promise, err := RunIteration(cfg, issueFile, issue.RoleTest)
+	if err != nil {
+		t.Fatalf("RunIteration failed: %v", err)
+	}
+	if promise != agent.TestFail {
+		t.Errorf("expected TEST_FAIL default when recovery also fails, got %q", promise)
 	}
 }
 

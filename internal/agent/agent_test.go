@@ -417,6 +417,65 @@ __LOOP_RESULT_END__`
 	}
 }
 
+func TestRecoverPromiseReturnsPromise(t *testing.T) {
+	saved := execCommandContext
+	defer func() { execCommandContext = saved }()
+
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.Command("echo", "-n", "__LOOP_RESULT__\nCOMPLETE\n__LOOP_RESULT_END__")
+	}
+
+	p := RecoverPromise(context.Background(), ".", 10*time.Second)
+	if p == nil {
+		t.Fatal("expected non-nil Promise")
+	}
+	if *p != Complete {
+		t.Errorf("expected COMPLETE, got %q", *p)
+	}
+}
+
+func TestRecoverPromiseReturnsNilOnNoPromise(t *testing.T) {
+	saved := execCommandContext
+	defer func() { execCommandContext = saved }()
+
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.Command("echo", "-n", "some output without promise markers")
+	}
+
+	p := RecoverPromise(context.Background(), ".", 10*time.Second)
+	if p != nil {
+		t.Errorf("expected nil for output without promise, got %q", *p)
+	}
+}
+
+func TestRecoverPromiseReturnsNilOnError(t *testing.T) {
+	saved := execCommandContext
+	defer func() { execCommandContext = saved }()
+
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.Command("false")
+	}
+
+	p := RecoverPromise(context.Background(), ".", 10*time.Second)
+	if p != nil {
+		t.Errorf("expected nil for command error, got %q", *p)
+	}
+}
+
+func TestRecoverPromptDoesNotIncludeIssueContext(t *testing.T) {
+	// Verify the recovery prompt is just a request for the promise marker
+	// without any issue body or task context.
+	if RecoverPrompt == "" {
+		t.Fatal("RecoverPrompt must not be empty")
+	}
+	if len(RecoverPrompt) > 500 {
+		t.Errorf("RecoverPrompt should be a short prompt, got %d bytes", len(RecoverPrompt))
+	}
+	if strings.Contains(RecoverPrompt, "## Role") || strings.Contains(RecoverPrompt, "Acceptance criteria") {
+		t.Error("RecoverPrompt contains issue context it should not have")
+	}
+}
+
 func TestParseOutputEndSentinelInSurroundingText(t *testing.T) {
 	output := `some __LOOP_RESULT_END__ text here
 __LOOP_RESULT__
