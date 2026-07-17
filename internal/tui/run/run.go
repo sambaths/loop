@@ -70,6 +70,9 @@ type Model struct {
 	startRunFn func()
 	cancel     context.CancelFunc
 
+	// pipeline counts populated on completion
+	pipelineCounts map[string]int
+
 	// viewport for scrollable logs
 	viewport viewport.Model
 	autoOn   bool
@@ -313,10 +316,6 @@ func (m *Model) headerHeight() int {
 	return h
 }
 
-func (m *Model) footerHeight() int {
-	return 2
-}
-
 // isGHWarning detects GitHub-related warnings and failures in log messages.
 func isGHWarning(text string) bool {
 	return strings.HasPrefix(text, "warning:") ||
@@ -383,16 +382,23 @@ func (m *Model) progressView() string {
 	return s
 }
 
+func (m *Model) footerHeight() int {
+	if m.Finished {
+		return 3
+	}
+	return 2
+}
+
 func (m *Model) completionView() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("loop run"))
 	b.WriteString("\n\n")
 	if m.Err != nil {
 		b.WriteString(errorStyle.Render("Error: " + m.Err.Error()))
-		b.WriteString("\n")
+		b.WriteString("\n\n")
 	} else {
 		b.WriteString(successStyle.Render("Run complete"))
-		b.WriteString("\n")
+		b.WriteString("\n\n")
 	}
 	b.WriteString("\n")
 
@@ -421,7 +427,6 @@ func (m *Model) completionView() string {
 		))
 		b.WriteString("\n")
 	}
-
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 

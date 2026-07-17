@@ -995,3 +995,123 @@ func TestAutoScrollViewDisplaysLogLines(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletionKeyDismisses(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	if !m2.Finished {
+		t.Fatal("expected finished to be true")
+	}
+
+	r2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m3 := r2.(*Model)
+
+	if !m3.quit {
+		t.Error("expected quit to be true after key press in completed state")
+	}
+	if cmd == nil {
+		t.Error("expected tea.Quit cmd after key press in completed state")
+	}
+}
+
+func TestCompletionEnterDismisses(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	r2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := r2.(*Model)
+
+	if !m3.quit {
+		t.Error("expected quit to be true after Enter in completed state")
+	}
+	if cmd == nil {
+		t.Error("expected tea.Quit cmd after Enter in completed state")
+	}
+}
+
+func TestCompletionScrollKeysDoNotDismiss(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	// Down key should NOT dismiss
+	r2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m3 := r2.(*Model)
+
+	if m3.quit {
+		t.Error("expected quit to remain false after down key in completed state")
+	}
+	// Viewport-based keys return a cmd from the viewport update
+	if m3.Finished != true {
+		t.Error("expected Finished to remain true")
+	}
+	_ = cmd // viewport cmd may be non-nil, that's fine
+}
+
+func TestCompletionViewShowsPipelineCounts(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	view := m2.View()
+	if !strings.Contains(view, "Pipeline counts") {
+		t.Errorf("expected completion view to show 'Pipeline counts', got:\n%s", view)
+	}
+}
+
+func TestCompletionViewShowsPressAnyKey(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	view := m2.View()
+	if !strings.Contains(view, "Press any key to exit") {
+		t.Errorf("expected completion view to show 'Press any key to exit', got:\n%s", view)
+	}
+}
+
+func TestCompletionViewShowsElapsed(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+	m.startTime = time.Now().Add(-2 * time.Minute)
+	m.elapsed = 2 * time.Minute
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	view := m2.View()
+	if !strings.Contains(view, "Elapsed:") {
+		t.Errorf("expected completion view to show 'Elapsed:', got:\n%s", view)
+	}
+	if !strings.Contains(view, "02:00") {
+		t.Errorf("expected completion view to show elapsed time '02:00', got:\n%s", view)
+	}
+}
+
+func TestCompletionLogViewportStillShown(t *testing.T) {
+	m := NewModel(config.Config{}, 5).(*Model)
+	m.iteration = 3
+	m.logs = []string{"log line 1", "log line 2"}
+	m.updateLogViewport()
+
+	r, _ := m.Update(CompletionMsg{})
+	m2 := r.(*Model)
+
+	view := m2.View()
+	if !strings.Contains(view, "log line 1") {
+		t.Errorf("expected completion view to show log lines, got:\n%s", view)
+	}
+}
