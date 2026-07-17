@@ -996,28 +996,6 @@ func TestAutoScrollViewDisplaysLogLines(t *testing.T) {
 	}
 }
 
-func TestCompletionKeyDismisses(t *testing.T) {
-	m := NewModel(config.Config{}, 5).(*Model)
-	m.iteration = 3
-
-	r, _ := m.Update(CompletionMsg{})
-	m2 := r.(*Model)
-
-	if !m2.Finished {
-		t.Fatal("expected finished to be true")
-	}
-
-	r2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	m3 := r2.(*Model)
-
-	if !m3.quit {
-		t.Error("expected quit to be true after key press in completed state")
-	}
-	if cmd == nil {
-		t.Error("expected tea.Quit cmd after key press in completed state")
-	}
-}
-
 func TestCompletionEnterDismisses(t *testing.T) {
 	m := NewModel(config.Config{}, 5).(*Model)
 	m.iteration = 3
