@@ -58,8 +58,6 @@ type Model struct {
 	Finished  bool
 	quit      bool
 
-	pipelineCounts map[string]int
-
 	startTime time.Time
 	elapsed   time.Duration
 
