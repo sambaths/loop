@@ -25,6 +25,8 @@ issues/  ──[IMPLEMENT]──▶  test-ready/  ──[TEST_PASS]──▶  do
   └─────────[TEST_FAIL]──────────┘
 ```
 
+> **For AI agents:** [`AGENTS.md`](AGENTS.md) is the exhaustive LLM reference read by `opencode` at session start. A web-accessible version is at [`docs/llms.txt`](docs/llms.txt). See also [`CONTEXT.md`](CONTEXT.md) for a compact glossary.
+
 Two modes:
 
 - **Local-only** — no GitHub, issues live entirely as markdown files

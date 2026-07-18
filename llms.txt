@@ -1,0 +1,337 @@
+# loop
+
+> A Go TUI that runs an AFK (Away From Keyboard) implement-then-test cycle over issues using `opencode` as the agent CLI. Issues are local markdown files; the filesystem is the state machine.
+
+## What is loop?
+
+loop is a standalone Go binary that orchestrates autonomous agent loops. You write issues as markdown files. Loop picks one up, runs `opencode run` to implement it, then tests it in a separate pass. Issues move through directories (`issues/` → `test-ready/` → `done/`) as they change state. Optionally mirrors state to GitHub labels and issue state.
+
+Follows the [Matt Pocock engineering skills](https://github.com/mattpocock) workflow pattern.
+
+## Quickstart
+
+```
+loop setup          # interactive setup wizard (creates .loop/config.json)
+loop run 10         # run 10 AFK iterations
+loop status         # show pipeline state
+loop                # open the TUI dashboard
+```
+
+## Issue State Machine
+
+### States
+
+| State | Directory | Description |
+|---|---|---|
+| todo | `docs/issues/` | Pending implementation |
+| ready-for-agent | `docs/issues/ready-for-agent/` | Ready for agent (alternative to todo) |
+| test-ready | `docs/issues/test-ready/` | Implemented, awaiting validation |
+| done | `docs/issues/done/` | Passed validation |
+| .quarantine | `docs/issues/.quarantine/` | Duplicates or agent failures |
+| unable | `docs/issues/unable/` | Exceeded max retries (5) |
+
+### Transitions
+
+| From | Condition | To |
+|---|---|---|
+| todo/ready-for-agent | Implement + COMPLETE | test-ready |
+| test-ready | Test + TEST_PASS | done |
+| test-ready | Test + TEST_FAIL (retry < 5) | todo (stripped of results) |
+| test-ready | Test + TEST_FAIL (retry >= 5) | unable |
+| any | NO_MORE_TASKS | .quarantine |
+
+### Execution Modes
+
+- **AFK-only** — autonomous, selected by the agent
+- **HITL-only** — human-in-the-loop, never run autonomously (produces NO_MORE_TASKS)
+- **Combo** — never selected (returns ErrNoIssues)
+
+## Issue File Format
+
+```markdown
+# NN - Feature title
+
+GitHub: #14
+Status: ready-for-agent
+Execution mode: AFK-only
+Branch: feature-branch
+Checksum: abc123...
+Type: feat
+Retry: 0
+
+## What to build
+
+Description.
+
+## User stories covered
+
+...
+
+## Acceptance criteria
+
+- [ ] Criterion one
+- [ ] Criterion two
+
+## UAT Plan
+
+| Step | Description | Output | Expected | Result |
+
+## Blocked by
+
+- None
+
+## Test Results
+
+(added by implementing agent)
+
+## UAT Results
+
+(added by testing subagent)
+```
+
+### Headers
+
+The header block sits between the `# Title` line and the first `## Section`. Recognized headers: `Status`, `Execution mode`, `GitHub`, `Checksum`, `Type`, `Branch`, `Retry`.
+
+Required sections (every issue): `What to build`, `User stories covered`, `Acceptance criteria`, `UAT plan` (5-column table), `Blocked by`.
+
+Disallowed sections by state:
+- **todo**: `UAT Results`
+- **test-ready**: `UAT Results` (empty placeholders stripped)
+- **ready-for-agent**: `Test Results`, `UAT Results`
+
+### Section Lifecycle
+
+1. Implementing agent writes `## Test Results` before COMPLETE
+2. Testing subagent writes `## UAT Results` before TEST_PASS/TEST_FAIL
+3. On TEST_FAIL, loop strips both sections before moving to todo/
+
+## CLI Commands
+
+All commands via `cmd/loop/main.go`. Uses Go `flag` package (no Cobra).
+
+### Global Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--timeout <secs>` | 0 | Override agent timeout |
+| `--repair` | true | Repair GitHub state on iterations |
+| `--headless` | false | Run without TUI for scripting/CI |
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `loop` | Start Bubbletea TUI dashboard (5 pages) |
+| `loop setup` | Interactive setup wizard: issue dir, GitHub repo, branch |
+| `loop run <n> [num]` | Run N AFK iterations; optionally force issue #num on iteration 1 |
+| `loop status` | Read-only TUI pipeline status viewer |
+| `loop check` | Validate pipeline: duplicates, headers, sections, checksums |
+| `loop repair` | Auto-repair: missing labels, stuck files, checksums |
+| `loop restore` | Restore git context after interrupted run |
+| `loop upgrade` | Self-upgrade to latest GitHub release |
+| `loop checksum verify` | Verify all SHA-256 checksums |
+| `loop completion bash` | Print bash completion script |
+| `loop commands` | Print command table |
+| `loop screenshot` | Save ANSI-stripped terminal screenshot |
+
+### Exit Codes
+
+- 0: Success
+- 1: General error (pre-flight, config, checksum)
+- 2: Unknown command or invalid args
+
+## Configuration
+
+`.loop/config.json` — found by walking up for `.git` or `go.mod`.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `repo` | string | `""` | GitHub owner/name; empty = local-only |
+| `issue_dir` | string | `"docs/issues"` | Path to issue files |
+| `branch_origin` | string | `"main"` | Default branch for branches |
+| `agent_timeout` | int | 300 | Agent timeout in seconds |
+| `inactivity_warn` | int | 60 | Seconds before inactivity warning |
+| `inactivity_recover` | int | 120 | Seconds before inactivity kill |
+| `checksums_enabled` | bool | true | Enable SHA-256 checksums |
+| `branch_from_origin` | bool | false | Create branches from origin/ |
+
+## Agent Protocol
+
+### Invocation
+
+`opencode run --dangerously-skip-permissions`
+
+Input (stdin): `## Role: <role>\n\n<issue_content>\n\n<system_prompt>`
+
+Working directory: configured issue directory.
+
+### Promise Markers (Sentinel Protocol)
+
+```
+__LOOP_RESULT__
+COMPLETE
+__LOOP_RESULT_END__
+```
+
+Tokens: `COMPLETE` (implement → test-ready), `TEST_PASS` (test → done), `TEST_FAIL` (test → todo), `NO_MORE_TASKS` (both → quarantine).
+
+Parsing: bottom-up scan for last `__LOOP_RESULT__`, then first `__LOOP_RESULT_END__` after it. Case-sensitive exact match.
+
+### Commit Message Sentinels
+
+```
+__LOOP_COMMIT__
+feat: short summary
+
+Detailed description of what changed and why.
+__LOOP_COMMIT_END__
+```
+
+Type must be: `feat`, `fix`, `bug`, `enhancement`, `chore`, `test`, `docs`.
+
+### Recovery
+
+If no valid promise marker found:
+1. Print warning with last 200 bytes of stdout
+2. Re-invoke agent with recovery prompt (30s timeout)
+3. Default to TEST_FAIL if recovery fails
+
+### Inactivity Watchdog
+
+- Check interval: `min(warn, recover) / 2` (floor 1s)
+- `inactivity_warn`: prints "agent appears stalled" (once)
+- `inactivity_recover`: kills process group with SIGKILL, attempts recovery
+
+### Stdout Buffering
+
+- Full stdout preserved in result (unlimited)
+- Promise parsing scans last 1 MB if output exceeds limit
+
+## Pipeline Orchestration
+
+### Issue Selection Priority
+
+1. Test-ready files (unblocked, no populated UAT Results) → role = test
+2. Ready-for-agent files (unblocked, AFK-only) → role = implement
+3. Todo files (unblocked, AFK-only) → role = implement
+4. HITL-only files → role = implement (fallback, produces NO_MORE_TASKS)
+
+### Pre-Flight Checks (errors block pipeline)
+
+- Duplicate filenames, GitHub numbers, or titles across states
+- Self-blocking or dead blocker references
+
+### Pre-Flight Checks (warnings only)
+
+- Missing GitHub/Checksum/Type/Branch headers
+- Title pattern mismatch
+- Missing/invalid Execution mode
+- Missing/disallowed sections
+- Populated UAT Results in test-ready (stuck files)
+- Checksum mismatch
+
+### Repair Actions
+
+1. Add missing `Status: ready-for-agent` to todo files
+2. Add missing `Execution mode: AFK-only`
+3. Strip empty `## UAT Results` placeholders
+4. Report stuck test-ready files (no auto-promote)
+5. Promote todo files with `## Test Results` to test-ready/
+6. Flag invalid execution modes (no auto-fix)
+7. Add/update SHA-256 checksums
+
+### Retry System
+
+- `MaxRetries = 5` (stored in `Retry:` header)
+- Inactivity kill: retried with `i--`; at >= 5, move to `unable/`
+- TEST_FAIL: stripped sections, moved to todo/ with incremented retry; at >= 5, move to `unable/`
+
+## Git Safety
+
+### Stash Flow
+
+1. `git stash push --include-untracked -m "loop-auto-save <timestamp>"`
+2. Fallback: `git stash create` + `git stash store` (plumbing)
+3. Final fallback: binary diff to `.git/loop-autosave.patch`
+4. On conflict: `ErrStashConflict` (stash preserved)
+
+### Branch Management
+
+- Temp branch naming: `loop/<slug>`
+- Merge strategy: `--ff-only` → `--no-edit` → `--abort` on failure
+- Context persisted to `.loop/git-context.json`: `{"OriginalBranch": "...", "Stashed": true}`
+
+## GitHub Integration
+
+Optional. If repo configured and `gh` authenticated:
+
+| State | GitHub Label |
+|---|---|
+| todo | ready-for-agent |
+| ready-for-agent | ready-for-agent |
+| test-ready | test-ready |
+| done | done |
+| .quarantine | quarantine |
+
+Auth check runs once per process (`sync.Once`). Falls back to local-only on failure.
+
+## Checksum System
+
+- SHA-256 hash of content excluding the `Checksum:` line
+- `Checksum: <hex>` header maintained by loop
+- Verify: `loop checksum verify`
+
+## Architecture
+
+```
+cmd/loop/              # CLI entry point, arg parsing
+internal/
+  agent/               # opencode subprocess + promise parsing
+  config/              # config load/save, project root detection
+  gh/                  # raw gh CLI wrappers
+  git/                 # stash, branch, context, commit
+  github/              # label sync, issue reopen, release download
+  issue/               # state machine, file parsing, transitions
+  pipeline/            # legacy orchestration
+  prompt/              # embedded agent system prompt
+  runner/              # current orchestration (RunLoop, etc.)
+  tui/dashboard/       # Bubbletea dashboard (5 pages)
+  tui/run/             # streamed run output viewer
+  tui/setup/           # interactive setup wizard
+  tui/status/          # read-only status viewer
+  tui/screenshot/      # ANSI-stripped screenshot saver
+```
+
+## Development
+
+```
+go test ./...        # run all tests
+go vet ./...          # lint
+make build            # build binary (Go 1.22+)
+make install          # build + copy to $HOME/.local/bin/loop
+make build-all        # cross-compile all platforms
+```
+
+### Releases
+
+GoReleaser + GitHub Actions. `make release TAG=vX.Y.Z` triggers cross-compilation for:
+- Linux (amd64, arm64) — `.tar.gz`
+- macOS (amd64, arm64) — `.tar.gz`
+- Windows (amd64) — `.zip`
+
+### Key Source Files
+
+- [`cmd/loop/main.go`](https://github.com/sambaths/loop/blob/main/cmd/loop/main.go) — CLI entry point, flag parsing, command dispatch
+- [`internal/issue/issue.go`](https://github.com/sambaths/loop/blob/main/internal/issue/issue.go) — State machine, file format, transitions
+- [`internal/agent/agent.go`](https://github.com/sambaths/loop/blob/main/internal/agent/agent.go) — opencode subprocess, sentinel parsing, watchdog
+- [`internal/runner/runner.go`](https://github.com/sambaths/loop/blob/main/internal/runner/runner.go) — Iteration loop orchestration
+- [`internal/git/git.go`](https://github.com/sambaths/loop/blob/main/internal/git/git.go) — Stash, branch, merge, context persistence
+- [`internal/github/github.go`](https://github.com/sambaths/loop/blob/main/internal/github/github.go) — Label sync, issue reopen, release download
+- [`internal/config/config.go`](https://github.com/sambaths/loop/blob/main/internal/config/config.go) — Config schema: repo, issue_dir, timeouts, checksums
+- [`internal/prompt/prompt.go`](https://github.com/sambaths/loop/blob/main/internal/prompt/prompt.go) — Embedded agent system prompt
+- [`.loop/config.json`](.loop/config.json) — Runtime configuration
+- [`README.md`](https://github.com/sambaths/loop/blob/main/README.md) — User-facing documentation
+- [`AGENTS.md`](https://github.com/sambaths/loop/blob/main/AGENTS.md) — Full LLM reference (project root)
+- [`CODING_STANDARDS.md`](https://github.com/sambaths/loop/blob/main/CODING_STANDARDS.md) — Coding conventions
+- [`CONTEXT.md`](https://github.com/sambaths/loop/blob/main/CONTEXT.md) — Compact glossary
