@@ -32,6 +32,12 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.ChecksumsEnabled {
 		t.Error("expected ChecksumsEnabled to default to true")
 	}
+	if cfg.InactivityWarn != DefaultInactivityWarn {
+		t.Errorf("expected InactivityWarn %d, got %d", DefaultInactivityWarn, cfg.InactivityWarn)
+	}
+	if cfg.InactivityRecover != DefaultInactivityRecover {
+		t.Errorf("expected InactivityRecover %d, got %d", DefaultInactivityRecover, cfg.InactivityRecover)
+	}
 }
 
 func TestSaveAndLoad(t *testing.T) {

@@ -1026,7 +1026,7 @@ func TestRunAgentContextStreamedCallsLineFn(t *testing.T) {
 
 	var captured []string
 
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {
 		captured = append(captured, line)
 	})
 	if err != nil {
@@ -1064,7 +1064,7 @@ func TestRunAgentContextStreamedCapturesStderr(t *testing.T) {
 	}
 
 	var captured []string
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {
 		captured = append(captured, line)
 	})
 	if err != nil {
@@ -1090,7 +1090,7 @@ func TestRunAgentContextStreamedNoOutput(t *testing.T) {
 	}
 
 	called := false
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {
 		called = true
 	})
 	if err != nil {
@@ -1114,7 +1114,7 @@ func TestRunAgentContextStreamedNonZeroExit(t *testing.T) {
 	}
 
 	var captured []string
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {
 		captured = append(captured, line)
 	})
 	if err != nil {
@@ -1136,7 +1136,7 @@ func TestRunAgentContextStreamedOpencodeNotFound(t *testing.T) {
 		return exec.Command("opencode-nonexistent-binary")
 	}
 
-	_, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {})
+	_, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {})
 	if err == nil {
 		t.Fatal("expected error when opencode is not found")
 	}
@@ -1161,7 +1161,7 @@ func TestRunAgentContextStreamedEmptyPrompt(t *testing.T) {
 	}
 
 	var captured []string
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "", ".", 0, 0, 0, func(line string) {
 		captured = append(captured, line)
 	})
 	if err != nil {
@@ -1278,7 +1278,7 @@ func TestRunStreamedTruncatedStdoutParsesLastNBytes(t *testing.T) {
 	}
 
 	var captured []string
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {
 		captured = append(captured, line)
 	})
 	if err != nil {
@@ -1309,7 +1309,7 @@ func TestRunStreamedTruncatedStdoutMarkerLost(t *testing.T) {
 	}
 
 	var captured []string
-	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, func(line string) {
+	result, err := RunAgentContextStreamed(context.Background(), "# Issue", "## Prompt", ".", 0, 0, 0, func(line string) {
 		captured = append(captured, line)
 	})
 	if err != nil {

@@ -40,7 +40,7 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 		body = issue.StripIssueSections(body, []string{"Test Results", "UAT Results"})
 	}
 
-	result, err := agent.RunAgentContextStreamed(ctx, body, prompt.GetPrompt(), cfg.IssueDir, timeout, lineFn)
+	result, err := agent.RunAgentContextStreamed(ctx, body, prompt.GetPrompt(), cfg.IssueDir, timeout, time.Duration(cfg.InactivityWarn)*time.Second, time.Duration(cfg.InactivityRecover)*time.Second, lineFn)
 	if err != nil {
 		return "", fmt.Errorf("agent run: %w", err)
 	}

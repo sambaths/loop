@@ -167,16 +167,20 @@ func RunAgentContext(ctx context.Context, issueText string, prompt string, dir s
 
 // RunAgentContextStreamed is like RunAgentContext but streams stdout lines
 // to lineFn as they are produced, while still buffering for promise parsing.
-func RunAgentContextStreamed(ctx context.Context, issueText string, prompt string, dir string, timeout time.Duration, lineFn func(string)) (*Result, error) {
+// inactivityWarn and inactivityRecover control the stdout inactivity watchdog
+// (0 = disabled for each).
+func RunAgentContextStreamed(ctx context.Context, issueText string, prompt string, dir string, timeout time.Duration, inactivityWarn, inactivityRecover time.Duration, lineFn func(string)) (*Result, error) {
 	content := issueText
 	if prompt != "" {
 		content += "\n\n" + prompt
 	}
-	return runContentStreamed(ctx, content, dir, timeout, lineFn)
+	return runContentStreamed(ctx, content, dir, timeout, inactivityWarn, inactivityRecover, lineFn)
 }
 
 // runContentStreamed runs opencode with streaming stdout output.
-func runContentStreamed(ctx context.Context, content string, dir string, timeout time.Duration, lineFn func(string)) (*Result, error) {
+// inactivityWarn and inactivityRecover control the stdout inactivity watchdog
+// (0 = disabled for each).
+func runContentStreamed(ctx context.Context, content string, dir string, timeout time.Duration, inactivityWarn, inactivityRecover time.Duration, lineFn func(string)) (*Result, error) {
 	var cancel context.CancelFunc
 	if timeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -197,12 +201,66 @@ func runContentStreamed(ctx context.Context, content string, dir string, timeout
 	cmd.Stdout = io.MultiWriter(&stdoutBuf, stdoutWriter)
 	cmd.Stderr = io.MultiWriter(&stderrBuf, stderrWriter)
 
+	var (
+		lastOutputMu   sync.Mutex
+		lastOutputTime = time.Now()
+	)
+	var watchdogKilled bool
+
+	if inactivityWarn > 0 || inactivityRecover > 0 {
+		watchdogCtx, stopWatchdog := context.WithCancel(ctx)
+		defer stopWatchdog()
+
+		go func() {
+			checkInterval := 5 * time.Second
+			if inactivityRecover > 0 && inactivityRecover < checkInterval {
+				checkInterval = inactivityRecover / 2
+			}
+			if inactivityWarn > 0 && inactivityWarn < checkInterval {
+				checkInterval = inactivityWarn / 2
+			}
+
+			ticker := time.NewTicker(checkInterval)
+			defer ticker.Stop()
+
+			warned := false
+
+			for {
+				select {
+				case <-ticker.C:
+					lastOutputMu.Lock()
+					elapsed := time.Since(lastOutputTime)
+					lastOutputMu.Unlock()
+
+					if inactivityRecover > 0 && elapsed >= inactivityRecover {
+						fmt.Fprintf(os.Stderr, "[loop] watchdog: agent inactive for %v (recover threshold: %v), killing process group\n", elapsed.Round(time.Second), inactivityRecover.Round(time.Second))
+						killProcessGroup(cmd)
+						watchdogKilled = true
+						stopWatchdog()
+						return
+					}
+
+					if !warned && inactivityWarn > 0 && elapsed >= inactivityWarn {
+						fmt.Fprintf(os.Stderr, "[loop] watchdog: agent appears stalled (no stdout output for %v, warn threshold: %v)\n", elapsed.Round(time.Second), inactivityWarn.Round(time.Second))
+						warned = true
+					}
+
+				case <-watchdogCtx.Done():
+					return
+				}
+			}
+		}()
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stdoutReader)
 		for scanner.Scan() {
+			lastOutputMu.Lock()
+			lastOutputTime = time.Now()
+			lastOutputMu.Unlock()
 			lineFn(scanner.Text())
 		}
 	}()
@@ -233,6 +291,33 @@ func runContentStreamed(ctx context.Context, content string, dir string, timeout
 	stdoutWriter.Close()
 	stderrWriter.Close()
 	wg.Wait()
+
+	if watchdogKilled {
+		fmt.Fprintf(os.Stderr, "[loop] watchdog: attempting promise recovery after inactivity kill\n")
+		promise := RecoverPromise(ctx, dir, recoverTimeout)
+
+		var outcome Outcome
+		if promise != nil {
+			outcome = Outcome(*promise)
+		} else {
+			outcome = OutcomeFail
+			fmt.Fprintf(os.Stderr, "[loop] watchdog: promise recovery failed after inactivity kill\n")
+		}
+
+		var combinedBuf bytes.Buffer
+		combinedBuf.Write(stdoutBuf.Bytes())
+		combinedBuf.Write(stderrBuf.Bytes())
+
+		result := &Result{
+			Outcome: outcome,
+			Output:  combinedBuf,
+			Stdout:  stdoutBuf,
+			Stderr:  stderrBuf,
+			Err:     runErr,
+		}
+		result.CommitMsg = ParseCommitMessage(stdoutBuf.String())
+		return result, nil
+	}
 
 	if runErr != nil {
 		if ctx.Err() != nil {

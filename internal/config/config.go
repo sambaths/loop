@@ -11,16 +11,20 @@ import (
 const DefaultIssueDir = "docs/issues"
 const DefaultBranchOrigin = "main"
 const DefaultAgentTimeout = 300
+const DefaultInactivityWarn = 60
+const DefaultInactivityRecover = 120
 const ConfigDirName = ".loop"
 const ConfigFileName = "config.json"
 
 type Config struct {
-	Repo             string `json:"repo"`
-	IssueDir         string `json:"issue_dir"`
-	BranchOrigin     string `json:"branch_origin"`
-	AgentTimeout     int    `json:"agent_timeout"`
-	ChecksumsEnabled bool   `json:"checksums_enabled"`
-	BranchFromOrigin bool   `json:"branch_from_origin"`
+	Repo              string `json:"repo"`
+	IssueDir          string `json:"issue_dir"`
+	BranchOrigin      string `json:"branch_origin"`
+	AgentTimeout      int    `json:"agent_timeout"`
+	InactivityWarn    int    `json:"inactivity_warn"`
+	InactivityRecover int    `json:"inactivity_recover"`
+	ChecksumsEnabled  bool   `json:"checksums_enabled"`
+	BranchFromOrigin  bool   `json:"branch_from_origin"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -57,10 +61,12 @@ func ConfigExists(path string) bool {
 
 func DefaultConfig() Config {
 	return Config{
-		IssueDir:         DefaultIssueDir,
-		BranchOrigin:     DefaultBranchOrigin,
-		AgentTimeout:     DefaultAgentTimeout,
-		ChecksumsEnabled: true,
+		IssueDir:          DefaultIssueDir,
+		BranchOrigin:      DefaultBranchOrigin,
+		AgentTimeout:      DefaultAgentTimeout,
+		InactivityWarn:    DefaultInactivityWarn,
+		InactivityRecover: DefaultInactivityRecover,
+		ChecksumsEnabled:  true,
 	}
 }
 
