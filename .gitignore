@@ -1,7 +1,6 @@
 # Planning artifacts (not part of the Go tool)
 CONTEXT.md
 docs/
-!docs/llms.txt
 
 
 # Runtime config (created by `loop setup` per project)
