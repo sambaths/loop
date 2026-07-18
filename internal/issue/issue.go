@@ -119,15 +119,16 @@ type IssueHeader struct {
 }
 
 type IssueFile struct {
-	Title     string
-	GitHubNum int
-	ExecMode  string
-	Branch    string
-	Checksum  string
-	Type      string
-	Retries   int
-	FilePath  string
-	State     State
+	Title      string
+	GitHubNum  int
+	ExecMode   string
+	Branch     string
+	Checksum   string
+	Type       string
+	Retries    int
+	FilePath   string
+	State      State
+	RawContent string
 }
 
 type IssueBody struct {
@@ -536,7 +537,7 @@ func ParseIssueFile(path string) (*IssueFile, error) {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
 
-	f := &IssueFile{FilePath: path, State: StateFromPath(path)}
+	f := &IssueFile{FilePath: path, State: StateFromPath(path), RawContent: string(data)}
 
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -646,30 +647,20 @@ func insertChecksumLine(content string, checksum string) string {
 	line := "Checksum: " + checksum
 	lines := strings.Split(content, "\n")
 
+	lastMatch := -1
 	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "Branch:") {
-			return insertAtLine(lines, i+1, line)
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "Branch:") ||
+			strings.HasPrefix(trimmed, "Execution mode:") ||
+			strings.HasPrefix(trimmed, "Status:") ||
+			strings.HasPrefix(trimmed, "GitHub: #") ||
+			strings.HasPrefix(trimmed, "# ") {
+			lastMatch = i
 		}
 	}
-	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "Execution mode:") {
-			return insertAtLine(lines, i+1, line)
-		}
-	}
-	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "Status:") {
-			return insertAtLine(lines, i+1, line)
-		}
-	}
-	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "GitHub: #") {
-			return insertAtLine(lines, i+1, line)
-		}
-	}
-	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "# ") {
-			return insertAtLine(lines, i+1, line)
-		}
+
+	if lastMatch >= 0 {
+		return insertAtLine(lines, lastMatch+1, line)
 	}
 	return content + "\n" + line
 }
@@ -2377,12 +2368,18 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 		if st == StateDone || st == StateQuarantine || st == StateUnable {
 			continue
 		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		blockers := ParseBlockedBy(string(data))
 		f, _ := getCachedIssueFile(state, p)
+		content := ""
+		if f != nil {
+			content = f.RawContent
+		} else {
+			d, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			content = string(d)
+		}
+		blockers := ParseBlockedBy(content)
 		for _, b := range blockers {
 			num, ok := extractBlockerNum(b)
 			if !ok {
@@ -2437,11 +2434,7 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 		if f.State == StateDone || f.State == StateQuarantine || f.State == StateUnable {
 			continue
 		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		secIssues := ValidateSections(string(data), f.State)
+		secIssues := ValidateSections(f.RawContent, f.State)
 		issues = append(issues, secIssues...)
 	}
 
@@ -2453,11 +2446,7 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 		if f.State == StateDone || f.State == StateQuarantine || f.State == StateUnable {
 			continue
 		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		headerIssues := ValidateHeaders(string(data), f.State, checksumsEnabled)
+		headerIssues := ValidateHeaders(f.RawContent, f.State, checksumsEnabled)
 		for i := range headerIssues {
 			headerIssues[i].FilePath = p
 		}
@@ -2465,11 +2454,18 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 	}
 
 	for _, p := range state.TestReadyFiles {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
+		f, _ := getCachedIssueFile(state, p)
+		content := ""
+		if f != nil {
+			content = f.RawContent
+		} else {
+			d, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			content = string(d)
 		}
-		if sectionHasContent(string(data), "UAT Results") {
+		if sectionHasContent(content, "UAT Results") {
 			issues = append(issues, PreFlightIssue{
 				FilePath: p,
 				Severity: SeverityWarning,

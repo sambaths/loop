@@ -150,14 +150,15 @@ func (p *Pipeline) Iterate() error {
 
 	restore()
 
-		if freshPS, psErr := issue.ScanIssueDir(p.IssueDir); psErr == nil {
-			if n, dupIssues := issue.QuarantineAll(freshPS); n > 0 {
-				for _, di := range dupIssues {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
-				}
-				fmt.Fprintf(os.Stderr, "--- quarantined %d new duplicate(s) ---\n", n)
+	// Re-check for duplicates introduced by agent-created files (e.g. sub-issues).
+	if freshPS, psErr := issue.ScanIssueDir(p.IssueDir); psErr == nil {
+		if n, dupIssues := issue.QuarantineAll(freshPS); n > 0 {
+			for _, di := range dupIssues {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", di.Severity, di.Message)
 			}
+			fmt.Fprintf(os.Stderr, "--- quarantined %d new duplicate(s) ---\n", n)
 		}
+	}
 
 	if _, statErr := os.Stat(p.CurrentIssue.FilePath); os.IsNotExist(statErr) {
 		fmt.Fprintf(os.Stderr, "--- selected file %q was quarantined as duplicate ---\n", p.CurrentIssue.Title)
