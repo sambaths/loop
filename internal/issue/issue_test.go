@@ -2137,13 +2137,13 @@ func TestPreFlightCheckEmpty(t *testing.T) {
 
 func TestPreFlightCheckDeadBlocker(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "test-ready", "task.md", "# Task\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 99 — Missing\n")
+	setupIssueFile(t, dir, "test-ready", "task.md", "# 99 - Task\n\nGitHub: #42\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 99 — Missing\n")
 
 	state := &PipelineState{
 		TestReadyFiles: []string{filepath.Join(dir, "test-ready", "task.md")},
 	}
 
-	issues := PreFlightCheck(state, false, true)
+	issues := PreFlightCheck(state, false, false)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(issues))
 	}
@@ -2157,13 +2157,13 @@ func TestPreFlightCheckDeadBlocker(t *testing.T) {
 
 func TestPreFlightCheckSelfBlocking(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "test-ready", "task.md", "# Task\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 42\n")
+	setupIssueFile(t, dir, "test-ready", "task.md", "# 42 - Task\n\nGitHub: #42\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 42\n")
 
 	state := &PipelineState{
 		TestReadyFiles: []string{filepath.Join(dir, "test-ready", "task.md")},
 	}
 
-	issues := PreFlightCheck(state, false, true)
+	issues := PreFlightCheck(state, false, false)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(issues))
 	}
@@ -2174,15 +2174,15 @@ func TestPreFlightCheckSelfBlocking(t *testing.T) {
 
 func TestPreFlightCheckDuplicateGitHubNum(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "done", "task1.md", "# Task One\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
-	setupIssueFile(t, dir, "test-ready", "task2.md", "# Task Two\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "done", "task1.md", "# 42 - Task One\n\nGitHub: #42\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "test-ready", "task2.md", "# 99 - Task Two\n\nGitHub: #42\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
 
 	state := &PipelineState{
 		DoneFiles:      []string{filepath.Join(dir, "done", "task1.md")},
 		TestReadyFiles: []string{filepath.Join(dir, "test-ready", "task2.md")},
 	}
 
-	issues := PreFlightCheck(state, false, true)
+	issues := PreFlightCheck(state, false, false)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(issues))
 	}
@@ -2196,15 +2196,15 @@ func TestPreFlightCheckDuplicateGitHubNum(t *testing.T) {
 
 func TestPreFlightCheckBlockerResolvedByDone(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "done", "task1-42.md", "# Task One\n\nGitHub: #42\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
-	setupIssueFile(t, dir, "test-ready", "task2.md", "# Task Two\n\nGitHub: #43\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 42\n")
+	setupIssueFile(t, dir, "done", "task1-42.md", "# 42 - Task One\n\nGitHub: #42\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "test-ready", "task2.md", "# 43 - Task Two\n\nGitHub: #43\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 42\n")
 
 	state := &PipelineState{
 		DoneFiles:      []string{filepath.Join(dir, "done", "task1-42.md")},
 		TestReadyFiles: []string{filepath.Join(dir, "test-ready", "task2.md")},
 	}
 
-	issues := PreFlightCheck(state, false, true)
+	issues := PreFlightCheck(state, false, false)
 	if len(issues) != 0 {
 		t.Errorf("expected 0 issues (blocker resolved by done), got %d", len(issues))
 	}
@@ -2212,10 +2212,10 @@ func TestPreFlightCheckBlockerResolvedByDone(t *testing.T) {
 
 func TestPreFlightCheckAllStates(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "", "todo.md", "# Todo\n\nGitHub: #10\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
-	setupIssueFile(t, dir, "test-ready", "ready.md", "# Ready\n\nGitHub: #20\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 99\n")
-	setupIssueFile(t, dir, "done", "done.md", "# Done\n\nGitHub: #30\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
-	setupIssueFile(t, dir, ".quarantine", "quar.md", "# Quar\n\nGitHub: #40\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "", "todo.md", "# 10 - Todo\n\nGitHub: #10\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "test-ready", "ready.md", "# 20 - Ready\n\nGitHub: #20\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 99\n")
+	setupIssueFile(t, dir, "done", "done.md", "# 30 - Done\n\nGitHub: #30\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, ".quarantine", "quar.md", "# 40 - Quar\n\nGitHub: #40\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
 
 	state := &PipelineState{
 		TodoFiles:       []string{filepath.Join(dir, "todo.md")},
@@ -2224,7 +2224,7 @@ func TestPreFlightCheckAllStates(t *testing.T) {
 		QuarantineFiles: []string{filepath.Join(dir, ".quarantine", "quar.md")},
 	}
 
-	issues := PreFlightCheck(state, false, true)
+	issues := PreFlightCheck(state, false, false)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 issue (dead blocker #99), got %d", len(issues))
 	}
@@ -2257,15 +2257,15 @@ func TestPreFlightCheckSkipsMalformedFiles(t *testing.T) {
 
 func TestPreFlightCheckBlockerInTodo(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "", "todo-blocker.md", "# Blocker\n\nGitHub: #5\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
-	setupIssueFile(t, dir, "test-ready", "task.md", "# Task\n\nGitHub: #10\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 5\n")
+	setupIssueFile(t, dir, "", "todo-blocker.md", "# 5 - Blocker\n\nGitHub: #5\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "test-ready", "task.md", "# 10 - Task\n\nGitHub: #10\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n- 5\n")
 
 	state := &PipelineState{
 		TodoFiles:      []string{filepath.Join(dir, "todo-blocker.md")},
 		TestReadyFiles: []string{filepath.Join(dir, "test-ready", "task.md")},
 	}
 
-	issues := PreFlightCheck(state, false, true)
+	issues := PreFlightCheck(state, false, false)
 	if len(issues) != 0 {
 		t.Errorf("expected 0 issues (blocker in todo is valid), got %d", len(issues))
 	}
@@ -5701,13 +5701,13 @@ func TestPreFlightCheckRepairQuarantinesDuplicates(t *testing.T) {
 
 func TestPreFlightCheckRepairOnlyOneFileState(t *testing.T) {
 	dir := t.TempDir()
-	setupIssueFile(t, dir, "", "unique.md", "# Todo\n\nGitHub: #1\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+	setupIssueFile(t, dir, "", "unique.md", "# 1 - Todo\n\nGitHub: #1\nType: feat\nBranch: main\nExecution mode: AFK-only\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
 
 	state := &PipelineState{
 		TodoFiles: []string{filepath.Join(dir, "unique.md")},
 	}
 
-	issues := PreFlightCheck(state, true, true)
+	issues := PreFlightCheck(state, true, false)
 
 	if len(issues) != 0 {
 		t.Errorf("expected 0 issues with repair=true (no duplicates), got %d: %v", len(issues), issues)
@@ -7728,5 +7728,335 @@ func TestVerifyChecksumsEmptyDir(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for empty dir, got %d", len(results))
+	}
+}
+
+func TestValidateHeadersAllPresent(t *testing.T) {
+	content := `# 07 - Template header validation
+
+GitHub: #42
+Type: feat
+Branch: main
+Checksum: abc123
+Execution mode: AFK-only
+Status: ready-for-agent
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues, got %d: %v", len(issues), issues)
+	}
+}
+
+func TestValidateHeadersMissingGitHub(t *testing.T) {
+	content := `# 07 - Template header validation
+
+Type: feat
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	var found bool
+	for _, i := range issues {
+		if strings.Contains(i.Message, "GitHub") {
+			found = true
+			if i.Severity != SeverityWarning {
+				t.Errorf("expected warning severity, got %q", i.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected warning about missing GitHub: header")
+	}
+}
+
+func TestValidateHeadersMissingChecksumWhenEnabled(t *testing.T) {
+	content := `# 07 - Template header validation
+
+GitHub: #42
+Type: feat
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	var found bool
+	for _, i := range issues {
+		if strings.Contains(i.Message, "Checksum") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected warning about missing Checksum: header when checksums enabled")
+	}
+}
+
+func TestValidateHeadersMissingChecksumWhenDisabled(t *testing.T) {
+	content := `# 07 - Template header validation
+
+GitHub: #42
+Type: feat
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, false)
+	for _, i := range issues {
+		if strings.Contains(i.Message, "Checksum") {
+			t.Error("did not expect Checksum warning when checksums disabled")
+		}
+	}
+}
+
+func TestValidateHeadersMissingType(t *testing.T) {
+	content := `# 07 - Template header validation
+
+GitHub: #42
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	var found bool
+	for _, i := range issues {
+		if strings.Contains(i.Message, "Type") && strings.Contains(i.Message, "missing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected warning about missing Type: header")
+	}
+}
+
+func TestValidateHeadersMissingBranch(t *testing.T) {
+	content := `# 07 - Template header validation
+
+GitHub: #42
+Type: feat
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	var found bool
+	for _, i := range issues {
+		if strings.Contains(i.Message, "Branch") && strings.Contains(i.Message, "missing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected warning about missing Branch: header")
+	}
+}
+
+func TestValidateHeadersTitleFormatInvalid(t *testing.T) {
+	content := `# Random title without number
+
+GitHub: #42
+Type: feat
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	var found bool
+	for _, i := range issues {
+		if strings.Contains(i.Message, "title") && strings.Contains(i.Message, "does not match pattern") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected warning about title format")
+	}
+}
+
+func TestValidateHeadersTitleFormatValidNumber(t *testing.T) {
+	content := `# 42 - Some description
+
+GitHub: #42
+Type: feat
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	for _, i := range issues {
+		if strings.Contains(i.Message, "title") && strings.Contains(i.Message, "does not match pattern") {
+			t.Errorf("unexpected title format warning for valid title: %s", i.Message)
+		}
+	}
+}
+
+func TestValidateHeadersTitleFormatMultiHyphen(t *testing.T) {
+	content := `# 07 - Title - Subtitle
+
+GitHub: #42
+Type: feat
+Branch: main
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	for _, i := range issues {
+		if strings.Contains(i.Message, "title") && strings.Contains(i.Message, "does not match pattern") {
+			t.Errorf("unexpected title format warning for valid title with hyphens: %s", i.Message)
+		}
+	}
+}
+
+func TestValidateHeadersUnrecognizedHeader(t *testing.T) {
+	content := `# 07 - Template header validation
+
+GitHub: #42
+Type: feat
+Branch: main
+Foo: bar
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	var found bool
+	for _, i := range issues {
+		if strings.Contains(i.Message, "unrecognized header") {
+			found = true
+			if !strings.Contains(i.Message, "Foo") {
+				t.Errorf("expected message to mention 'Foo', got %q", i.Message)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected warning about unrecognized header")
+	}
+}
+
+func TestValidateHeadersSkipsDone(t *testing.T) {
+	content := `# Some random title
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateDone, true)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues for done state, got %d", len(issues))
+	}
+}
+
+func TestValidateHeadersSkipsQuarantine(t *testing.T) {
+	content := `# Some random title
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateQuarantine, true)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues for quarantine state, got %d", len(issues))
+	}
+}
+
+func TestValidateHeadersSkipsUnable(t *testing.T) {
+	content := `# Some random title
+
+## What to build
+
+Something
+`
+	issues := ValidateHeaders(content, StateUnable, true)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues for unable state, got %d", len(issues))
+	}
+}
+
+func TestPreFlightCheckHeaderWarnings(t *testing.T) {
+	dir := t.TempDir()
+	// Todo file missing most headers
+	setupIssueFile(t, dir, "", "task.md", "# Bad title\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+
+	state := &PipelineState{
+		TodoFiles: []string{filepath.Join(dir, "task.md")},
+	}
+
+	issues := PreFlightCheck(state, false, true)
+	var headerIssues []PreFlightIssue
+	for _, i := range issues {
+		if strings.Contains(i.Message, "missing") || strings.Contains(i.Message, "does not match pattern") || strings.Contains(i.Message, "unrecognized") {
+			headerIssues = append(headerIssues, i)
+		}
+	}
+	if len(headerIssues) == 0 {
+		t.Fatal("expected header warnings from PreFlightCheck, got 0")
+	}
+	// Should warn about GitHub, Checksum, Type, Branch, and title format
+	expectedMessages := []string{"GitHub", "Checksum", "Type", "Branch", "does not match pattern"}
+	for _, m := range expectedMessages {
+		var found bool
+		for _, i := range headerIssues {
+			if strings.Contains(i.Message, m) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected header issue containing %q", m)
+		}
+	}
+}
+
+func TestPreFlightCheckNoHeaderWarningsForDone(t *testing.T) {
+	dir := t.TempDir()
+	setupIssueFile(t, dir, "done", "done.md", "# Done issue\n\n## Parent\n\n## What to build\n\n## User stories covered\n\n## Acceptance criteria\n\n## UAT plan\n\n## Blocked by\n")
+
+	state := &PipelineState{
+		DoneFiles: []string{filepath.Join(dir, "done", "done.md")},
+	}
+
+	issues := PreFlightCheck(state, false, true)
+	for _, i := range issues {
+		if strings.Contains(i.Message, "GitHub") || strings.Contains(i.Message, "Type") || strings.Contains(i.Message, "Branch") || strings.Contains(i.Message, "does not match pattern") {
+			t.Errorf("unexpected header warning for done file: %s", i.Message)
+		}
+	}
+}
+
+func TestValidateHeadersAllHeadersPresentWithEmoji(t *testing.T) {
+	content := `# 99 - Final issue with all headers
+
+GitHub: #99
+Type: feat
+Branch: main
+Checksum: def456
+Execution mode: AFK-only
+Status: ready-for-agent
+Retry: 0
+
+## What to build
+
+Build all the things
+`
+	issues := ValidateHeaders(content, StateTodo, true)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues when all headers present, got %d: %v", len(issues), issues)
 	}
 }

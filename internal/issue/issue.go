@@ -160,6 +160,17 @@ var DisallowedSections = map[State][]string{
 	StateReadyForAgent: {"Test Results", "UAT Results"},
 }
 
+// KnownHeaders lists all recognized header field keys in an issue file.
+var KnownHeaders = []string{
+	"Status",
+	"Execution mode",
+	"GitHub",
+	"Checksum",
+	"Type",
+	"Branch",
+	"Retry",
+}
+
 // KnownSections is the complete set of all recognized body sections in an issue file.
 var KnownSections = []string{
 	"Parent",
@@ -1968,6 +1979,106 @@ func extractBlockerNum(ref string) (int, bool) {
 	return 0, false
 }
 
+// ValidateHeaders checks the frontmatter header fields of an issue file content
+// and returns PreFlightIssue entries (warnings) for any missing or invalid headers.
+// Only applies to active pipeline states (todo, test-ready, ready-for-agent).
+// When checksumsEnabled is false, missing Checksum: header is not flagged.
+func ValidateHeaders(content string, state State, checksumsEnabled bool) []PreFlightIssue {
+	switch state {
+	case StateDone, StateQuarantine, StateUnable:
+		return nil
+	}
+
+	knownHeaders := map[string]bool{
+		"Status":         true,
+		"Execution mode": true,
+		"GitHub":         true,
+		"Checksum":       true,
+		"Type":           true,
+		"Branch":         true,
+		"Retry":          true,
+	}
+
+	hasGitHub := false
+	hasChecksum := false
+	hasType := false
+	hasBranch := false
+	var titleText string
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") {
+			titleText = strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+		} else if strings.HasPrefix(trimmed, "## ") {
+			break
+		} else if colonIdx := strings.Index(trimmed, ": "); colonIdx > 0 {
+			key := trimmed[:colonIdx]
+			if knownHeaders[key] {
+				switch key {
+				case "GitHub":
+					hasGitHub = true
+				case "Checksum":
+					hasChecksum = true
+				case "Type":
+					hasType = true
+				case "Branch":
+					hasBranch = true
+				}
+			} else {
+				return []PreFlightIssue{{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("unrecognized header %q", key),
+				}}
+			}
+		}
+	}
+
+	var issues []PreFlightIssue
+
+	if !hasGitHub {
+		issues = append(issues, PreFlightIssue{
+			Severity: SeverityWarning,
+			Message:  "missing GitHub: header",
+		})
+	}
+	if checksumsEnabled && !hasChecksum {
+		issues = append(issues, PreFlightIssue{
+			Severity: SeverityWarning,
+			Message:  "missing Checksum: header",
+		})
+	}
+	if !hasType {
+		issues = append(issues, PreFlightIssue{
+			Severity: SeverityWarning,
+			Message:  "missing Type: header",
+		})
+	}
+	if !hasBranch {
+		issues = append(issues, PreFlightIssue{
+			Severity: SeverityWarning,
+			Message:  "missing Branch: header",
+		})
+	}
+
+	if titleText != "" {
+		idx := strings.Index(titleText, " - ")
+		if idx <= 0 {
+			issues = append(issues, PreFlightIssue{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("title %q does not match pattern (number - description)", titleText),
+			})
+		} else if _, err := strconv.Atoi(strings.TrimSpace(titleText[:idx])); err != nil {
+			issues = append(issues, PreFlightIssue{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("title %q does not match pattern (number - description)", titleText),
+			})
+		}
+	}
+
+	return issues
+}
+
 // ValidateSections checks the content of an issue file against RequiredSections
 // and DisallowedSections for the given state. Returns PreFlightIssue entries for
 // any missing required sections or present disallowed sections.
@@ -2332,6 +2443,25 @@ func PreFlightCheck(state *PipelineState, repair bool, checksumsEnabled bool) []
 		}
 		secIssues := ValidateSections(string(data), f.State)
 		issues = append(issues, secIssues...)
+	}
+
+	for _, p := range allPaths {
+		f, err := getCachedIssueFile(state, p)
+		if err != nil {
+			continue
+		}
+		if f.State == StateDone || f.State == StateQuarantine || f.State == StateUnable {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		headerIssues := ValidateHeaders(string(data), f.State, checksumsEnabled)
+		for i := range headerIssues {
+			headerIssues[i].FilePath = p
+		}
+		issues = append(issues, headerIssues...)
 	}
 
 	for _, p := range state.TestReadyFiles {
