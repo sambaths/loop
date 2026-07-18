@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -42,6 +43,10 @@ func RunIterationStreamed(ctx context.Context, cfg *config.Config, issueFile *is
 
 	result, err := agent.RunAgentContextStreamed(ctx, body, prompt.GetPrompt(), cfg.IssueDir, timeout, time.Duration(cfg.InactivityWarn)*time.Second, time.Duration(cfg.InactivityRecover)*time.Second, lineFn)
 	if err != nil {
+		if errors.Is(err, agent.ErrInactivityKill) {
+			fmt.Fprintf(os.Stderr, "warning: agent killed by inactivity watchdog, recovery failed for issue %q\n", issueFile.Title)
+			return agent.TestFail, fmt.Errorf("inactivity kill: %w", err)
+		}
 		return "", fmt.Errorf("agent run: %w", err)
 	}
 
@@ -114,6 +119,10 @@ func RunIterationContext(ctx context.Context, cfg *config.Config, issueFile *iss
 
 	result, err := agent.RunAgentContext(ctx, body, prompt.GetPrompt(), cfg.IssueDir, timeout)
 	if err != nil {
+		if errors.Is(err, agent.ErrInactivityKill) {
+			fmt.Fprintf(os.Stderr, "warning: agent killed by inactivity watchdog, recovery failed for issue %q\n", issueFile.Title)
+			return agent.TestFail, fmt.Errorf("inactivity kill: %w", err)
+		}
 		return "", fmt.Errorf("agent run: %w", err)
 	}
 

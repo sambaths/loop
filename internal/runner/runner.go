@@ -170,6 +170,7 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 		}
 
 		var promise agent.Promise
+		var inactivityKill bool
 		if iterErr := func() error {
 			// Save user's working tree and note current branch
 			stashed, stashErr := git.StashChanges()
@@ -205,6 +206,10 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 			var runErr error
 			promise, runErr = RunIterationStreamed(ctx, cfg, selectedFile, role, lineFn)
 			if runErr != nil {
+				if errors.Is(runErr, agent.ErrInactivityKill) {
+					inactivityKill = true
+					return nil
+				}
 				return fmt.Errorf("iteration %d: %w", i+1, runErr)
 			}
 
@@ -241,6 +246,28 @@ func RunLoopStreamed(ctx context.Context, cfg *config.Config, maxIter int, force
 			return nil
 		}(); iterErr != nil {
 			return fmt.Errorf("iteration %d: %w", i+1, iterErr)
+		}
+
+		if inactivityKill {
+			selectedFile.Retries++
+			lineFn(fmt.Sprintf("--- issue %q killed by inactivity watchdog, recovery failed (retries: %d/%d) ---", selectedFile.Title, selectedFile.Retries, issue.MaxRetries))
+
+			if selectedFile.Retries >= issue.MaxRetries {
+				lineFn(fmt.Sprintf("--- issue %q exceeded max retries (%d) from inactivity kill, moving to unable/ ---", selectedFile.Title, selectedFile.Retries))
+				if err := issue.SetRetryCount(selectedFile.FilePath, selectedFile.Retries); err != nil {
+					lineFn(fmt.Sprintf("--- warning: failed to update retry count: %v ---", err))
+				}
+				if err := issue.Move(cfg.IssueDir, issueFromFile(selectedFile), issue.StateUnable); err != nil {
+					lineFn(fmt.Sprintf("--- move to unable failed: %v ---", err))
+				}
+				continue
+			}
+
+			if err := issue.SetRetryCount(selectedFile.FilePath, selectedFile.Retries); err != nil {
+				lineFn(fmt.Sprintf("--- warning: failed to update retry count: %v ---", err))
+			}
+			i--
+			continue
 		}
 
 		if promise == agent.NoMoreTasks {
@@ -431,6 +458,7 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 		}
 
 		var promise agent.Promise
+		var inactivityKill bool
 		if iterErr := func() error {
 			// Save user's working tree and note current branch
 			stashed, stashErr := git.StashChanges()
@@ -466,6 +494,10 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 			var runErr error
 			promise, runErr = RunIterationContext(ctx, cfg, selectedFile, role)
 			if runErr != nil {
+				if errors.Is(runErr, agent.ErrInactivityKill) {
+					inactivityKill = true
+					return nil
+				}
 				return fmt.Errorf("iteration %d: %w", i+1, runErr)
 			}
 
@@ -502,6 +534,28 @@ func RunLoopContext(ctx context.Context, cfg *config.Config, maxIter int, forceI
 			return nil
 		}(); iterErr != nil {
 			return fmt.Errorf("iteration %d: %w", i+1, iterErr)
+		}
+
+		if inactivityKill {
+			selectedFile.Retries++
+			fmt.Fprintf(os.Stderr, "--- issue %q killed by inactivity watchdog, recovery failed (retries: %d/%d) ---\n", selectedFile.Title, selectedFile.Retries, issue.MaxRetries)
+
+			if selectedFile.Retries >= issue.MaxRetries {
+				fmt.Fprintf(os.Stderr, "--- issue %q exceeded max retries (%d) from inactivity kill, moving to unable/ ---\n", selectedFile.Title, selectedFile.Retries)
+				if err := issue.SetRetryCount(selectedFile.FilePath, selectedFile.Retries); err != nil {
+					fmt.Fprintf(os.Stderr, "--- warning: failed to update retry count: %v ---\n", err)
+				}
+				if err := issue.Move(cfg.IssueDir, issueFromFile(selectedFile), issue.StateUnable); err != nil {
+					fmt.Fprintf(os.Stderr, "--- move to unable failed: %v ---\n", err)
+				}
+				continue
+			}
+
+			if err := issue.SetRetryCount(selectedFile.FilePath, selectedFile.Retries); err != nil {
+				fmt.Fprintf(os.Stderr, "--- warning: failed to update retry count: %v ---\n", err)
+			}
+			i--
+			continue
 		}
 
 		if promise == agent.NoMoreTasks {

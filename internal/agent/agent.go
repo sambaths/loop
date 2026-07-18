@@ -36,6 +36,7 @@ const (
 )
 
 var ErrOpencodeNotFound = errors.New("opencode binary not found in PATH")
+var ErrInactivityKill = errors.New("agent killed due to stdout inactivity watchdog")
 
 func HasOpencode() bool {
 	_, err := exec.LookPath("opencode")
@@ -316,6 +317,10 @@ func runContentStreamed(ctx context.Context, content string, dir string, timeout
 			Err:     runErr,
 		}
 		result.CommitMsg = ParseCommitMessage(stdoutBuf.String())
+
+		if promise == nil {
+			return result, ErrInactivityKill
+		}
 		return result, nil
 	}
 

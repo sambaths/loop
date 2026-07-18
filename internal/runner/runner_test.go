@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sambaths/loop/internal/agent"
 	"github.com/sambaths/loop/internal/config"
 	"github.com/sambaths/loop/internal/github"
 	"github.com/sambaths/loop/internal/issue"
@@ -1009,6 +1010,82 @@ func TestQuarantineAllTitleCollision(t *testing.T) {
 	}
 	if len(quarantine) != 1 {
 		t.Errorf("expected 1 quarantined file on disk, got %d", len(quarantine))
+	}
+}
+
+// setupMockHangingOpencode creates a mock that outputs no promise marker
+// on the main invocation and sleeps (simulating a hung agent), and also
+// outputs no promise marker on recovery invocation (recovery failure).
+func setupMockHangingOpencode(t *testing.T) string {
+	t.Helper()
+	script := `#!/bin/bash
+input=$(cat)
+# If this is a recovery call, exit without a promise marker
+if echo "$input" | grep -qF "missing a promise marker"; then
+    echo "recovery attempted but no promise"
+    exit 0
+fi
+# Main call: output some text, then sleep (simulating hang)
+echo "Agent starting work..."
+sleep 10
+exit 0
+`
+	mockDir := t.TempDir()
+	mockPath := filepath.Join(mockDir, "opencode")
+	if err := os.WriteFile(mockPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write mock binary: %v", err)
+	}
+	return mockDir
+}
+
+func TestRunLoopStreamedInactivityKillRetriesAndMovesToUnable(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	defer chdir(t, dir)()
+
+	createTodoIssue(t, dir)
+	addAndCommit(t, dir)
+
+	mockDir := setupMockHangingOpencode(t)
+	t.Setenv("PATH", mockDir+":"+os.Getenv("PATH"))
+
+	var lines []string
+	cfg := &config.Config{IssueDir: dir, AgentTimeout: 120, InactivityWarn: 1, InactivityRecover: 1}
+
+	err := RunLoopStreamed(context.Background(), cfg, 10, 0, true,
+		func(line string) { lines = append(lines, line) },
+		func(iter, total int, title, role string) {},
+	)
+	if err != nil {
+		t.Fatalf("RunLoopStreamed should handle inactivity kills without error, got: %v", err)
+	}
+
+	output := strings.Join(lines, "\n")
+	if !strings.Contains(output, "inactivity watchdog") {
+		t.Errorf("expected inactivity watchdog message in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "retries:") {
+		t.Errorf("expected retry message in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "exceeded max retries") {
+		t.Errorf("expected max retries exceeded message in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "unable") {
+		t.Errorf("expected 'unable' in output when retries exhausted, got:\n%s", output)
+	}
+
+	unable, err := issue.List(dir, issue.StateUnable)
+	if err != nil {
+		t.Fatalf("List unable: %v", err)
+	}
+	if len(unable) != 1 {
+		t.Errorf("expected 1 issue in unable after max retries, got %d", len(unable))
+	}
+}
+
+func TestRunnerErrInactivityKillExported(t *testing.T) {
+	if agent.ErrInactivityKill == nil {
+		t.Fatal("ErrInactivityKill must not be nil")
 	}
 }
 
